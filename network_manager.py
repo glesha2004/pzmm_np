@@ -1,3 +1,5 @@
+# network_manager.py
+
 import requests
 import os
 import zipfile

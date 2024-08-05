@@ -1,3 +1,5 @@
+# setup.py
+
 import os
 import subprocess
 import shutil
@@ -88,6 +90,36 @@ def install_steamcmd(console_output_func, program_directory, user_directory, con
         shutil.rmtree(extract_dir)
         console_output_func("Cleanup complete.")
 
+    except Exception as e:
+        console_output_func(f"Error: {str(e)}")
+    finally:
+        console_output_func("quit")
+
+def install_pz_server(console_output_func, steamcmd_path, install_dir):
+    try:
+        console_output_func("Installing Project Zomboid Dedicated Server...")
+        os.makedirs(install_dir, exist_ok=True)
+
+        script_content = """
+force_install_dir {install_dir}
+login anonymous
+app_update 380870 validate
+quit
+""".format(install_dir=install_dir)
+
+        script_path = os.path.join(install_dir, 'install_pz_server.txt')
+        with open(script_path, 'w') as script_file:
+            script_file.write(script_content)
+
+        process = subprocess.Popen([steamcmd_path, '+runscript', script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stream_output(process, console_output_func)
+
+        if process.returncode == 0:
+            console_output_func(f"Project Zomboid Dedicated Server installed at: {install_dir}")
+        else:
+            console_output_func(f"Installation failed with code: {process.returncode}")
+
+        os.remove(script_path)
     except Exception as e:
         console_output_func(f"Error: {str(e)}")
     finally:

@@ -1,3 +1,5 @@
+# main.py
+
 from PySide6.QtWidgets import QApplication
 import sys
 from ui_main import MainWindow

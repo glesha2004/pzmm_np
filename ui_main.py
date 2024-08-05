@@ -1,3 +1,5 @@
+# ui_main.py
+
 from PySide6.QtWidgets import QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
     QSizePolicy
@@ -5,7 +7,7 @@ from PySide6.QtCore import QThread, Signal, QObject
 from PySide6.QtGui import QAction
 import configparser
 import os
-from setup import install_steamcmd
+from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
 from file_manager import ensure_config_exists
 
@@ -22,6 +24,20 @@ class Worker(QObject):
 
     def run(self):
         install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.config_path)
+        self.finished.emit()
+
+
+class PZServerWorker(QObject):
+    finished = Signal()
+    log = Signal(str)
+
+    def __init__(self, steamcmd_path, install_dir):
+        super().__init__()
+        self.steamcmd_path = steamcmd_path
+        self.install_dir = install_dir
+
+    def run(self):
+        install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir)
         self.finished.emit()
 
 
@@ -128,6 +144,26 @@ class MainWindow(QMainWindow):
         self.thread.finished.connect(self.thread.deleteLater)
 
         self.worker.log.connect(self.append_to_console)
+
+        self.thread.start()
+
+    def install_pz_server(self):
+        user_directory = self.get_user_directory()
+        steamcmd_path = self.config.get('Paths', 'SteamCMD', fallback='')
+        if not steamcmd_path or not os.path.exists(steamcmd_path):
+            self.append_to_console("Error: SteamCMD not installed. Please install SteamCMD first.")
+            return
+
+        self.thread = QThread()
+        self.pz_worker = PZServerWorker(steamcmd_path, user_directory)
+        self.pz_worker.moveToThread(self.thread)
+
+        self.thread.started.connect(self.pz_worker.run)
+        self.pz_worker.finished.connect(self.thread.quit)
+        self.pz_worker.finished.connect(self.pz_worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        self.pz_worker.log.connect(self.append_to_console)
 
         self.thread.start()
 
@@ -292,9 +328,6 @@ class MainWindow(QMainWindow):
 
     def terminate_server(self):
         self.console.append("Terminating Server...")
-
-    def install_pz_server(self):
-        self.server_setup_console.append("Installing Project Zomboid Dedicated Server...")
 
     def test_start_pz_server(self):
         server_option = self.server_start_combobox.currentText()

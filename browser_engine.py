@@ -1,3 +1,5 @@
+# browser_engine.py
+
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 class BrowserEngine(QWebEngineView):
