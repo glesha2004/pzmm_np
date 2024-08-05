@@ -1,8 +1,28 @@
 from PySide6.QtWidgets import QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
-    QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QSpacerItem, QSizePolicy
+    QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
+    QSizePolicy, QProgressBar
+from PySide6.QtCore import QThread, Signal, QObject
 from PySide6.QtGui import QAction
 import configparser
+import os
+from setup import install_steamcmd
 from browser_engine import BrowserEngine
+
+
+class Worker(QObject):
+    finished = Signal()
+    progress = Signal(int, int)
+    log = Signal(str)
+
+    def __init__(self, program_directory, user_directory):
+        super().__init__()
+        self.program_directory = program_directory
+        self.user_directory = user_directory
+
+    def run(self):
+        install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.progress.emit)
+        self.finished.emit()
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -85,9 +105,44 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(left_layout)
 
-        self.console = QTextEdit()
-        self.console.setReadOnly(True)
-        layout.addWidget(self.console)
+        self.server_setup_console = QTextEdit()
+        self.server_setup_console.setReadOnly(True)
+        layout.addWidget(self.server_setup_console)
+
+        self.progress_bar = QProgressBar()
+        layout.addWidget(self.progress_bar)
+
+    def install_steamcmd(self):
+        program_directory = os.path.dirname(os.path.abspath(__file__))
+        user_directory = self.get_user_directory()
+
+        self.thread = QThread()
+        self.worker = Worker(program_directory, user_directory)
+        self.worker.moveToThread(self.thread)
+
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        self.worker.progress.connect(self.update_progress)
+        self.worker.log.connect(self.append_to_console)
+
+        self.thread.start()
+
+    def append_to_console(self, text):
+        self.server_setup_console.append(text)
+
+    def update_progress(self, downloaded, total):
+        self.progress_bar.setValue(downloaded)
+
+    def get_user_directory(self):
+        dialog = QFileDialog()
+        dialog.setFileMode(QFileDialog.Directory)
+        dialog.setOption(QFileDialog.ShowDirsOnly)
+        if dialog.exec():
+            return dialog.selectedFiles()[0]
+        return ""
 
     def create_server_tab(self, layout):
         server_tabs = QTabWidget()
@@ -240,15 +295,12 @@ class MainWindow(QMainWindow):
     def terminate_server(self):
         self.console.append("Terminating Server...")
 
-    def install_steamcmd(self):
-        self.console.append("Installing SteamCMD...")
-
     def install_pz_server(self):
-        self.console.append("Installing Project Zomboid Dedicated Server...")
+        self.server_setup_console.append("Installing Project Zomboid Dedicated Server...")
 
     def test_start_pz_server(self):
         server_option = self.server_start_combobox.currentText()
-        self.console.append(f"Test starting Project Zomboid Dedicated Server with option: {server_option}")
+        self.server_setup_console.append(f"Test starting Project Zomboid Dedicated Server with option: {server_option}")
 
     def open_settings(self):
         settings_dialog = QDialog(self)
