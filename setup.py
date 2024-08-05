@@ -1,42 +1,54 @@
 import os
 import subprocess
 import shutil
+import threading
 import time
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 from network_manager import download_steamcmd, extract_zip
+import configparser
 
 
-class LogFileHandler(FileSystemEventHandler):
-    def __init__(self, log_file_path, console_output_func):
-        self.log_file_path = log_file_path
-        self.console_output_func = console_output_func
-        self.last_position = 0
-
-    def on_modified(self, event):
-        if event.src_path == self.log_file_path:
-            with open(self.log_file_path, 'r') as f:
-                f.seek(self.last_position)
-                lines = f.readlines()
-                self.last_position = f.tell()
-                for line in lines:
-                    self.console_output_func(line.strip())
-
-
-def install_steamcmd(console_output_func, program_directory, user_directory, progress_callback):
+def tail_log_file(log_file_path, interval, console_output_func):
+    time.sleep(5)  # Задержка перед началом чтения лог-файла
     try:
-        progress_callback(0, 100)
+        with open(log_file_path, 'r', encoding='cp1251') as log_file:
+            while True:
+                line = log_file.readline()
+                if not line:
+                    time.sleep(interval)
+                    continue
+                console_output_func(line.strip())
+    except Exception as e:
+        console_output_func(f"Error reading log file: {str(e)}")
+
+
+def stream_output(process, console_output_func):
+    for line in iter(process.stdout.readline, ''):
+        console_output_func(line.strip())
+    for line in iter(process.stderr.readline, ''):
+        console_output_func(line.strip())
+
+
+def save_steamcmd_path(config_path, steamcmd_path):
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    if 'Paths' not in config:
+        config['Paths'] = {}
+    config['Paths']['SteamCMD'] = steamcmd_path
+    with open(config_path, 'w') as configfile:
+        config.write(configfile)
+
+
+def install_steamcmd(console_output_func, program_directory, user_directory, config_path):
+    try:
         console_output_func("Downloading SteamCMD...")
-        zip_path = download_steamcmd(program_directory, progress_callback)
+        zip_path = download_steamcmd(program_directory, lambda x, y: None)
         console_output_func("SteamCMD downloaded.")
-        progress_callback(20, 100)
 
         console_output_func("Extracting SteamCMD...")
         extract_dir = os.path.join(program_directory, "steamcmd")
         os.makedirs(extract_dir, exist_ok=True)
         extract_zip(zip_path, extract_dir)
         console_output_func("SteamCMD extracted.")
-        progress_callback(40, 100)
 
         if not os.path.exists(user_directory):
             os.makedirs(user_directory)
@@ -50,40 +62,31 @@ def install_steamcmd(console_output_func, program_directory, user_directory, pro
                 shutil.copy2(s, d)
 
         console_output_func("SteamCMD moved to user directory.")
-        progress_callback(60, 100)
 
         console_output_func("Installing SteamCMD...")
         steamcmd_path = os.path.join(user_directory, 'steamcmd.exe')
+        log_file_path = os.path.join(user_directory, 'logs', 'bootstrap_log.txt')
 
-        log_dir = os.path.join(user_directory, 'logs')
-        log_file_path = os.path.join(log_dir, 'bootstrap_log.txt')
-        os.makedirs(log_dir, exist_ok=True)
+        if not os.path.exists(steamcmd_path):
+            console_output_func(f"SteamCMD not found at path {steamcmd_path}")
+            return
 
-        event_handler = LogFileHandler(log_file_path, console_output_func)
-        observer = Observer()
-        observer.schedule(event_handler, path=log_dir, recursive=False)
-        observer.start()
+        threading.Thread(target=tail_log_file, args=(log_file_path, 1, console_output_func)).start()
 
-        process = subprocess.Popen([steamcmd_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen([steamcmd_path, "+quit"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                   encoding='cp1251')
+        stream_output(process, console_output_func)
 
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                console_output_func(output.strip())
+        if process.returncode == 0:
+            console_output_func(f"SteamCMD installed at: {user_directory}")
+        else:
+            console_output_func(f"SteamCMD installation failed with code: {process.returncode}")
 
-        process.wait()
-        observer.stop()
-        observer.join()
-
-        progress_callback(80, 100)
-        console_output_func("SteamCMD installed.")
+        save_steamcmd_path(config_path, steamcmd_path)  # Сохраняем путь к steamcmd.exe
 
         os.remove(zip_path)
         shutil.rmtree(extract_dir)
         console_output_func("Cleanup complete.")
-        progress_callback(100, 100)
 
     except Exception as e:
         console_output_func(f"Error: {str(e)}")

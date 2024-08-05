@@ -1,26 +1,27 @@
 from PySide6.QtWidgets import QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
-    QSizePolicy, QProgressBar
+    QSizePolicy
 from PySide6.QtCore import QThread, Signal, QObject
 from PySide6.QtGui import QAction
 import configparser
 import os
 from setup import install_steamcmd
 from browser_engine import BrowserEngine
+from file_manager import ensure_config_exists
 
 
 class Worker(QObject):
     finished = Signal()
-    progress = Signal(int, int)
     log = Signal(str)
 
-    def __init__(self, program_directory, user_directory):
+    def __init__(self, program_directory, user_directory, config_path):
         super().__init__()
         self.program_directory = program_directory
         self.user_directory = user_directory
+        self.config_path = config_path
 
     def run(self):
-        install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.progress.emit)
+        install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.config_path)
         self.finished.emit()
 
 
@@ -30,9 +31,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Project Zomboid Mod Manager')
         self.setGeometry(100, 100, 1440, 720)
 
+        # Config path
+        self.config_path = 'config.ini'
+        ensure_config_exists(self.config_path)  # Проверка и создание config.ini
+
         # Reading settings from config.ini
         self.config = configparser.ConfigParser()
-        self.config.read('config.ini')
+        self.config.read(self.config_path)
         self.current_theme = self.config.get('Settings', 'theme', fallback='Light')
 
         # Applying the theme
@@ -109,15 +114,12 @@ class MainWindow(QMainWindow):
         self.server_setup_console.setReadOnly(True)
         layout.addWidget(self.server_setup_console)
 
-        self.progress_bar = QProgressBar()
-        layout.addWidget(self.progress_bar)
-
     def install_steamcmd(self):
         program_directory = os.path.dirname(os.path.abspath(__file__))
         user_directory = self.get_user_directory()
 
         self.thread = QThread()
-        self.worker = Worker(program_directory, user_directory)
+        self.worker = Worker(program_directory, user_directory, self.config_path)
         self.worker.moveToThread(self.thread)
 
         self.thread.started.connect(self.worker.run)
@@ -125,16 +127,12 @@ class MainWindow(QMainWindow):
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
 
-        self.worker.progress.connect(self.update_progress)
         self.worker.log.connect(self.append_to_console)
 
         self.thread.start()
 
     def append_to_console(self, text):
         self.server_setup_console.append(text)
-
-    def update_progress(self, downloaded, total):
-        self.progress_bar.setValue(downloaded)
 
     def get_user_directory(self):
         dialog = QFileDialog()
@@ -335,17 +333,13 @@ class MainWindow(QMainWindow):
         options_dialog.exec()
 
     def apply_and_save_theme(self):
-        if self.light_theme_rb.isChecked():
-            self.current_theme = 'Light'
-        elif self.light_dark_theme_rb.isChecked():
-            self.current_theme = 'Light Dark'
-        elif self.dark_theme_rb.isChecked():
-            self.current_theme == 'Dark'
+        if 'Settings' not in self.config:
+            self.config['Settings'] = {}
+        self.config.set('Settings', 'theme', self.current_theme)
 
         self.apply_theme(self.current_theme)
 
-        self.config.set('Settings', 'theme', self.current_theme)
-        with open('config.ini', 'w') as configfile:
+        with open(self.config_path, 'w') as configfile:
             self.config.write(configfile)
 
     def apply_theme(self, theme):
