@@ -9,6 +9,7 @@ import os
 from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
 from file_manager import ensure_config_exists
+import getpass
 
 # Настройка логирования
 logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
@@ -60,6 +61,7 @@ class MainWindow(QMainWindow):
         ensure_config_exists(self.config_path)  # Проверка и создание config.ini
         self.load_config()
         self.server_directory = server_directory or self.config.get('Paths', 'PZServer', fallback="C:/default/server/directory")
+        self.zomboid_directory = self.get_zomboid_directory()  # Получаем путь к папке Zomboid
         self.setWindowTitle('Project Zomboid Mod Manager')
         self.setGeometry(100, 100, 1440, 720)
 
@@ -107,6 +109,10 @@ class MainWindow(QMainWindow):
         if os.path.exists(self.config_path):
             self.config.read(self.config_path)
 
+    def save_config(self):
+        with open(self.config_path, 'w') as configfile:
+            self.config.write(configfile)
+
     def add_tab(self, title, content_function=None):
         tab = QWidget()
         layout = QHBoxLayout()  # Используем QHBoxLayout для основной вкладки
@@ -116,6 +122,11 @@ class MainWindow(QMainWindow):
             layout.addWidget(QLabel(f"This is the {title} tab"))
         tab.setLayout(layout)
         self.tabs.addTab(tab, title)
+
+    def get_zomboid_directory(self):
+        username = getpass.getuser()
+        zomboid_path = f"C:/Users/{username}/Zomboid"
+        return zomboid_path
 
     def create_server_setup_tab(self, layout):
         top_layout = QHBoxLayout()  # Горизонтальное расположение для верхнего макета
@@ -227,8 +238,7 @@ class MainWindow(QMainWindow):
         if not self.config.has_section(section):
             self.config.add_section(section)
         self.config.set(section, option, path)
-        with open(self.config_path, 'w') as configfile:
-            self.config.write(configfile)
+        self.save_config()
         logger.info(f"Saved {option} path to config: {path}")
 
     def append_to_console(self, text):
@@ -420,6 +430,7 @@ class MainWindow(QMainWindow):
         if "SERVER STARTED" in output:
             QTimer.singleShot(10000, self.quit_server)
             logger.info("Server started. Scheduled quit command in 10 seconds.")
+            self.save_path_to_config('Paths', 'Zomboid', self.zomboid_directory)
 
     def quit_server(self):
         if self.process and self.process.state() == QProcess.Running:
