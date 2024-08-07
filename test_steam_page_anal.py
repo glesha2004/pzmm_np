@@ -1,8 +1,9 @@
+import re
 import sys
 import requests
 import logging
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QTextEdit
-from bs4 import BeautifulSoup, Comment
+from pyquery import PyQuery as pq
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,15 +40,20 @@ class SteamWorkshopIdentifier(QWidget):
         url = self.url_input.text()
         logging.info(f"Checking URL: {url}")
 
-        if "https://steamcommunity.com/workshop/browse/?section=collections&appid=108600" in url:
-            logging.warning("Invalid collection link.")
-            QMessageBox.warning(self, "Error", "Invalid collection link.")
+        invalid_urls = [
+            "https://steamcommunity.com/app/108600/workshop/",
+            "https://steamcommunity.com/workshop/browse/?appid=108600",
+        ]
+
+        if any(url.startswith(invalid_url) for invalid_url in invalid_urls):
+            logging.warning("Invalid workshop browser link.")
+            QMessageBox.warning(self, "Error", "Invalid workshop browser link.")
             return
 
         try:
             response = requests.get(url)
             response.raise_for_status()
-            response.encoding = 'cp-1251'  # Set the encoding to cp-1251
+            response.encoding = 'utf-8'
             html_content = response.text
             result, details = self.identify_page_type(html_content)
             self.result_label.setText(f"Page Type: {result}")
@@ -58,62 +64,60 @@ class SteamWorkshopIdentifier(QWidget):
 
     def identify_page_type(self, html_content):
         logging.info("Starting to identify page type.")
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        # Remove scripts, styles, and comments
-        for element in soup(["script", "style"]):
-            logging.debug(f"Removing element: {element.name}")
-            element.extract()
-        for comment in soup.findAll(string=lambda text: isinstance(text, Comment)):
-            logging.debug("Removing comment")
-            comment.extract()
-
-        clean_text = soup.get_text(separator="\n")
-        logging.debug(f"Clean text: {clean_text[:1000]}...")  # Log the first 100000 characters of the clean text
-
-        if "https://steamcommunity.com/workshop/browse/?section=collections&appid=108600" in clean_text:
-            logging.info("Identified as modpack.")
-            return "modpack", ""
+        doc = pq(html_content)
 
         workshop_ids = set()
         mod_ids = set()
         map_folders = set()
 
-        logging.debug("Starting to parse text lines.")
-        lines = clean_text.split("\n")
-        capture_next = None  # Flag to capture the next line
+        # Check if the page is a modpack
+        if doc('a[href*="https://steamcommunity.com/workshop/browse/?section=collections&appid=108600"]').length > 0:
+            logging.info("Identified as modpack.")
+            return "modpack", ""
 
-        for line in lines:
-            line = line.strip()
-            logging.debug(f"Processing line: {line}")
+        # Extract text from elements
+        text_elements = doc('body').text().split('\n')
+        capture_next = None
 
-            if capture_next == "workshop_id" and line:
-                workshop_ids.add(line)
-                logging.debug(f"Captured Workshop ID: {line}")
+        for text in text_elements:
+            text = text.strip()
+            logging.debug(f"Processing text: {text}")
+
+            # Skip unwanted text
+            if "Popular Discussions View All" in text or "View All" in text or "Discussions" in text:
+                continue
+
+            if capture_next == "mod_id" and text and not text.startswith(('Workshop ID:', 'Mod ID:', 'Map Folder:')):
+                mod_ids.add(text)
                 capture_next = None
-            elif capture_next == "mod_id" and line:
-                mod_ids.add(line)
-                logging.debug(f"Captured Mod ID: {line}")
-                capture_next = None
-            elif capture_next == "map_folder" and line:
-                map_folders.add(line)
-                logging.debug(f"Captured Map Folder: {line}")
+            elif capture_next == "map_folder" and text and not text.startswith(('Workshop ID:', 'Mod ID:', 'Map Folder:')):
+                map_folders.add(text)
                 capture_next = None
 
-            if "Workshop ID" in line:
-                capture_next = "workshop_id"
-            elif "Mod ID" in line:
+            if "Workshop ID" in text:
+                match = re.search(r'Workshop ID:?\s*(\d+)', text, re.IGNORECASE)
+                if match:
+                    workshop_ids.add(match.group(1).strip())
+            elif "Mod ID" in text:
                 capture_next = "mod_id"
-            elif "Map Folder" in line:
+                match = re.search(r'Mod ID:?\s*([\w\d\s_-]+)', text, re.IGNORECASE)
+                if match:
+                    mod_ids.add(match.group(1).strip())
+                    capture_next = None
+            elif "Map Folder" in text:
                 capture_next = "map_folder"
+                match = re.search(r'Map Folder:?\s*([\w\d\s_-]+)', text, re.IGNORECASE)
+                if match:
+                    map_folders.add(match.group(1).strip())
+                    capture_next = None
 
         details = ""
         if workshop_ids:
-            details += "Workshop ID:\n" + "\n".join(workshop_ids) + "\n"
+            details += "Workshop ID:\n" + "\n".join(sorted(workshop_ids)) + "\n"
         if mod_ids:
-            details += "Mod ID:\n" + "\n".join(mod_ids) + "\n"
+            details += "Mod ID:\n" + "\n".join(sorted(mod_ids)) + "\n"
         if map_folders:
-            details += "Map Folder:\n" + "\n".join(map_folders) + "\n"
+            details += "Map Folder:\n" + "\n".join(sorted(map_folders)) + "\n"
 
         page_type = "map" if map_folders else "mod"
         logging.info(f"Page type identified as: {page_type}")
