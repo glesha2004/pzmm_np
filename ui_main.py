@@ -1,5 +1,3 @@
-# ui_main.py
-
 import logging
 from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
@@ -103,13 +101,15 @@ class MainWindow(QMainWindow):
         self.add_tab("Steam Workshop", self.create_steam_workshop_tab)
         self.add_tab("LocalNet")
 
+        self.process = None  # Переменная для процесса сервера
+
     def load_config(self):
         if os.path.exists(self.config_path):
             self.config.read(self.config_path)
 
     def add_tab(self, title, content_function=None):
         tab = QWidget()
-        layout = QVBoxLayout()  # Используем QVBoxLayout для вкладки
+        layout = QHBoxLayout()  # Используем QHBoxLayout для основной вкладки
         if content_function:
             content_function(layout)
         else:
@@ -118,43 +118,55 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(tab, title)
 
     def create_server_setup_tab(self, layout):
-        top_layout = QHBoxLayout()
+        top_layout = QHBoxLayout()  # Горизонтальное расположение для верхнего макета
 
-        left_layout = QVBoxLayout()
-        left_layout.setSpacing(0)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        # Левый макет для кнопок
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(5)  # Минимальное расстояние между кнопками
+        button_layout.setContentsMargins(10, 10, 10, 10)  # Отступы от края
 
         install_steamcmd_button = QPushButton("Install SteamCMD")
+        install_steamcmd_button.setFixedWidth(200)  # Фиксированная ширина кнопок
         install_steamcmd_button.clicked.connect(self.install_steamcmd)
-        left_layout.addWidget(install_steamcmd_button)
+        button_layout.addWidget(install_steamcmd_button)
 
         install_pz_server_button = QPushButton("Install Project Zomboid Dedicated Server")
+        install_pz_server_button.setFixedWidth(200)
         install_pz_server_button.clicked.connect(self.install_pz_server)
-        left_layout.addWidget(install_pz_server_button)
+        button_layout.addWidget(install_pz_server_button)
 
         test_start_pz_server_button = QPushButton("Test start Project Zomboid Dedicated Server")
-        left_layout.addWidget(test_start_pz_server_button)
+        test_start_pz_server_button.setFixedWidth(200)
+        button_layout.addWidget(test_start_pz_server_button)
 
         self.server_start_combobox = QComboBox()
         self.server_start_combobox.addItems(["StartServer32", "StartServer64", "StartServer64_nosteam"])
         self.server_start_combobox.setCurrentIndex(1)
-        left_layout.addWidget(self.server_start_combobox)
+        self.server_start_combobox.setFixedWidth(200)
+        button_layout.addWidget(self.server_start_combobox)
 
         test_start_pz_server_button.clicked.connect(self.test_start_pz_server)
 
-        top_layout.addLayout(left_layout)
+        # Добавляем вертикальный спейсер после кнопок, чтобы они оставались наверху
+        button_layout.addStretch(1)
 
+        # Добавляем button_layout к левому краю top_layout
+        top_layout.addLayout(button_layout)
+
+        # Создаем макет для консоли
         console_layout = QVBoxLayout()
         self.server_setup_console = QTextEdit()
         self.server_setup_console.setReadOnly(True)
         console_layout.addWidget(self.server_setup_console, stretch=1)
 
         self.console_input = QLineEdit()
-        self.console_input.returnPressed.connect(self.send_command_to_server)
+        self.console_input.returnPressed.connect(self.send_command_to_server)  # Обработка ввода команд
         console_layout.addWidget(self.console_input)
 
+        # Добавляем console_layout к правому краю top_layout
         top_layout.addLayout(console_layout, stretch=3)
 
+        # Добавляем top_layout к основному layout
         layout.addLayout(top_layout)
 
     def install_steamcmd(self):
@@ -236,7 +248,7 @@ class MainWindow(QMainWindow):
         server_tabs = QTabWidget()
 
         server_tab = QWidget()
-        server_layout = QVBoxLayout()
+        server_layout = QHBoxLayout()
 
         left_layout = QVBoxLayout()
         left_layout.setSpacing(10)
@@ -268,13 +280,13 @@ class MainWindow(QMainWindow):
         console_layout = QVBoxLayout()
         self.console = QTextEdit()
         self.console.setReadOnly(True)
-        console_layout.addWidget(self.console, stretch=1)
+        console_layout.addWidget(self.console)
 
-        self.console_input_server_tab = QLineEdit()
+        self.console_input_server_tab = QLineEdit()  # Определяем здесь, чтобы избежать ошибок
         self.console_input_server_tab.returnPressed.connect(self.send_command_to_server)
         console_layout.addWidget(self.console_input_server_tab)
 
-        server_layout.addLayout(console_layout, stretch=3)
+        server_layout.addLayout(console_layout, stretch=1)
 
         server_tab.setLayout(server_layout)
         server_tabs.addTab(server_tab, "Server")
@@ -363,31 +375,69 @@ class MainWindow(QMainWindow):
         layout.addWidget(browser, stretch=3)
 
     def send_command(self):
-        command = self.console_input.text()
-        self.console.append(f"> {command}")
-        self.console_input.clear()
+        command = self.console_input_server_tab.text()
+        if command:
+            self.console.append(f"> {command}")
+            self.console_input_server_tab.clear()
+            if self.process:
+                self.process.write(f"{command}\n".encode())
         logger.info(f"Sent command: {command}")
 
     def send_command_to_server(self):
-        if self.process and self.process.state() == QProcess.Running:
-            command = self.console_input.text() or self.console_input_server_tab.text()
-            self.console.append(f"> {command}")
-            self.process.write((command + '\n').encode())
+        command = self.console_input.text()
+        if command:
+            self.server_setup_console.append(f"> {command}")
             self.console_input.clear()
-            self.console_input_server_tab.clear()
-            logger.info(f"Sent command to server: {command}")
+            if self.process:
+                self.process.write(f"{command}\n".encode())
+        logger.info(f"Sent command to server: {command}")
 
     def start_server(self):
         self.console.append("Starting Server...")
         logger.info("Starting server")
+        if not self.process or self.process.state() != QProcess.Running:
+            server_option = self.server_start_combobox_server_tab.currentText()
+            server_file = f"{server_option}.bat"
+            if not os.path.exists(os.path.join(self.server_directory, server_file)):
+                error_message = f"Error: {server_file} not found in {self.server_directory}."
+                self.console.append(error_message)
+                logger.error(error_message)
+                return
+
+            self.process = QProcess(self)
+            self.process.setProgram(os.path.join(self.server_directory, server_file))
+            self.process.setProcessChannelMode(QProcess.MergedChannels)
+            self.process.readyReadStandardOutput.connect(self.display_output)
+            self.process.readyReadStandardError.connect(self.display_output)
+            self.process.start()
+
+    def display_output(self):
+        output = self.process.readAllStandardOutput().data().decode('cp1251', errors='ignore')
+        self.console.append(output)
+        self.server_setup_console.append(output)
+        logger.debug(f"Server output: {output}")
+
+        if "SERVER STARTED" in output:
+            QTimer.singleShot(10000, self.quit_server)
+            logger.info("Server started. Scheduled quit command in 10 seconds.")
+
+    def quit_server(self):
+        if self.process and self.process.state() == QProcess.Running:
+            self.process.write(b"quit\n")
+            logger.info("Sent quit command to server.")
 
     def save_and_quit(self):
         self.console.append("Saving and Quitting...")
         logger.info("Saving and quitting server")
+        if self.process and self.process.state() == QProcess.Running:
+            self.process.write(b"save\n")
+            self.process.write(b"quit\n")
 
     def terminate_server(self):
         self.console.append("Terminating Server...")
         logger.info("Terminating server")
+        if self.process and self.process.state() == QProcess.Running:
+            self.process.terminate()
 
     def test_start_pz_server(self):
         self.load_config()  # Ensure we have the latest config values
@@ -408,20 +458,6 @@ class MainWindow(QMainWindow):
         self.process.readyReadStandardError.connect(self.display_output)
         logger.info(f"Starting server with {server_file} in {self.server_directory}")
         self.process.start()
-
-    def display_output(self):
-        output = self.process.readAllStandardOutput().data().decode('cp1251', errors='ignore')
-        self.server_setup_console.append(output)
-        logger.debug(f"Server output: {output}")
-
-        if "SERVER STARTED" in output:
-            QTimer.singleShot(10000, self.quit_server)
-            logger.info("Server started. Scheduled quit command in 10 seconds.")
-
-    def quit_server(self):
-        if self.process and self.process.state() == QProcess.Running:
-            self.process.write(b"quit\n")
-            logger.info("Sent quit command to server.")
 
     def open_settings(self):
         settings_dialog = QDialog(self)
