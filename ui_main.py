@@ -1,15 +1,20 @@
 # ui_main.py
 
-from PySide6.QtWidgets import QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
+import logging
+from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
     QSizePolicy
-from PySide6.QtCore import QThread, Signal, QObject
+from PySide6.QtCore import QThread, Signal, QObject, QProcess, QTimer
 from PySide6.QtGui import QAction
 import configparser
 import os
 from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
 from file_manager import ensure_config_exists
+
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class Worker(QObject):
     finished = Signal()
@@ -22,7 +27,12 @@ class Worker(QObject):
         self.config_path = config_path
 
     def run(self):
-        install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.config_path)
+        try:
+            self.log.emit(f"Starting SteamCMD installation in {self.user_directory}")
+            install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.config_path)
+        except Exception as e:
+            logger.error(f"Error during SteamCMD installation: {e}")
+            self.log.emit(f"Error during SteamCMD installation: {e}")
         self.finished.emit()
 
 class PZServerWorker(QObject):
@@ -36,22 +46,26 @@ class PZServerWorker(QObject):
         self.config_path = config_path
 
     def run(self):
-        install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir, self.config_path)
+        try:
+            self.log.emit(f"Starting Project Zomboid server installation in {self.install_dir} using SteamCMD from {self.steamcmd_path}")
+            install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir, self.config_path)
+        except Exception as e:
+            logger.error(f"Error during Project Zomboid server installation: {e}")
+            self.log.emit(f"Error during Project Zomboid server installation: {e}")
         self.finished.emit()
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, server_directory=None):
         super().__init__()
+        self.config_path = 'config.ini'
+        self.config = configparser.ConfigParser()
+        ensure_config_exists(self.config_path)  # Проверка и создание config.ini
+        self.load_config()
+        self.server_directory = server_directory or self.config.get('Paths', 'PZServer', fallback="C:/default/server/directory")
         self.setWindowTitle('Project Zomboid Mod Manager')
         self.setGeometry(100, 100, 1440, 720)
 
-        # Config path
-        self.config_path = 'config.ini'
-        ensure_config_exists(self.config_path)  # Проверка и создание config.ini
-
         # Reading settings from config.ini
-        self.config = configparser.ConfigParser()
-        self.config.read(self.config_path)
         self.current_theme = self.config.get('Settings', 'theme', fallback='Light')
 
         # Applying the theme
@@ -89,9 +103,13 @@ class MainWindow(QMainWindow):
         self.add_tab("Steam Workshop", self.create_steam_workshop_tab)
         self.add_tab("LocalNet")
 
+    def load_config(self):
+        if os.path.exists(self.config_path):
+            self.config.read(self.config_path)
+
     def add_tab(self, title, content_function=None):
         tab = QWidget()
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()  # Используем QVBoxLayout для вкладки
         if content_function:
             content_function(layout)
         else:
@@ -100,6 +118,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(tab, title)
 
     def create_server_setup_tab(self, layout):
+        top_layout = QHBoxLayout()
+
         left_layout = QVBoxLayout()
         left_layout.setSpacing(0)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -122,15 +142,31 @@ class MainWindow(QMainWindow):
 
         test_start_pz_server_button.clicked.connect(self.test_start_pz_server)
 
-        layout.addLayout(left_layout)
+        top_layout.addLayout(left_layout)
 
+        console_layout = QVBoxLayout()
         self.server_setup_console = QTextEdit()
         self.server_setup_console.setReadOnly(True)
-        layout.addWidget(self.server_setup_console)
+        console_layout.addWidget(self.server_setup_console, stretch=1)
+
+        self.console_input = QLineEdit()
+        self.console_input.returnPressed.connect(self.send_command_to_server)
+        console_layout.addWidget(self.console_input)
+
+        top_layout.addLayout(console_layout, stretch=3)
+
+        layout.addLayout(top_layout)
 
     def install_steamcmd(self):
         program_directory = os.path.dirname(os.path.abspath(__file__))
         user_directory = self.get_user_directory()
+
+        if not user_directory:
+            self.append_to_console("Installation cancelled.")
+            return
+
+        logger.info(f"Installing SteamCMD to {user_directory}")
+        self.save_path_to_config('Paths', 'SteamCMD', user_directory)
 
         self.thread = QThread()
         self.worker = Worker(program_directory, user_directory, self.config_path)
@@ -148,9 +184,19 @@ class MainWindow(QMainWindow):
     def install_pz_server(self):
         user_directory = self.get_user_directory()
         steamcmd_path = self.config.get('Paths', 'SteamCMD', fallback='')
+
+        if not user_directory:
+            self.append_to_console("Installation cancelled.")
+            return
+
         if not steamcmd_path or not os.path.exists(steamcmd_path):
             self.append_to_console("Error: SteamCMD not installed. Please install SteamCMD first.")
             return
+
+        logger.info(f"Installing Project Zomboid server to {user_directory} using SteamCMD from {steamcmd_path}")
+        self.save_path_to_config('Paths', 'PZServer', user_directory)
+
+        self.server_directory = user_directory  # Обновляем путь к серверу
 
         self.thread = QThread()
         self.pz_worker = PZServerWorker(steamcmd_path, user_directory, self.config_path)
@@ -165,9 +211,18 @@ class MainWindow(QMainWindow):
 
         self.thread.start()
 
+    def save_path_to_config(self, section, option, path):
+        if not self.config.has_section(section):
+            self.config.add_section(section)
+        self.config.set(section, option, path)
+        with open(self.config_path, 'w') as configfile:
+            self.config.write(configfile)
+        logger.info(f"Saved {option} path to config: {path}")
+
     def append_to_console(self, text):
         self.server_setup_console.append(text)
         self.server_setup_console.ensureCursorVisible()  # Обеспечивает прокрутку консоли к последнему сообщению
+        logger.debug(text)
 
     def get_user_directory(self):
         dialog = QFileDialog()
@@ -175,13 +230,13 @@ class MainWindow(QMainWindow):
         dialog.setOption(QFileDialog.ShowDirsOnly)
         if dialog.exec():
             return dialog.selectedFiles()[0]
-        return ""
+        return None
 
     def create_server_tab(self, layout):
         server_tabs = QTabWidget()
 
         server_tab = QWidget()
-        server_layout = QHBoxLayout()
+        server_layout = QVBoxLayout()
 
         left_layout = QVBoxLayout()
         left_layout.setSpacing(10)
@@ -213,20 +268,13 @@ class MainWindow(QMainWindow):
         console_layout = QVBoxLayout()
         self.console = QTextEdit()
         self.console.setReadOnly(True)
-        console_layout.addWidget(self.console)
+        console_layout.addWidget(self.console, stretch=1)
 
-        self.console_input = QLineEdit()
-        self.console_input.returnPressed.connect(self.send_command)
-        console_layout.addWidget(self.console_input)
+        self.console_input_server_tab = QLineEdit()
+        self.console_input_server_tab.returnPressed.connect(self.send_command_to_server)
+        console_layout.addWidget(self.console_input_server_tab)
 
-        server_layout.addLayout(console_layout, stretch=1)
-
-        player_list_layout = QVBoxLayout()
-        player_list_label = QLabel("Player List")
-        player_list_layout.addWidget(player_list_label)
-        self.player_list = QListWidget()
-        player_list_layout.addWidget(self.player_list)
-        server_layout.addLayout(player_list_layout, stretch=1)
+        server_layout.addLayout(console_layout, stretch=3)
 
         server_tab.setLayout(server_layout)
         server_tabs.addTab(server_tab, "Server")
@@ -318,19 +366,62 @@ class MainWindow(QMainWindow):
         command = self.console_input.text()
         self.console.append(f"> {command}")
         self.console_input.clear()
+        logger.info(f"Sent command: {command}")
+
+    def send_command_to_server(self):
+        if self.process and self.process.state() == QProcess.Running:
+            command = self.console_input.text() or self.console_input_server_tab.text()
+            self.console.append(f"> {command}")
+            self.process.write((command + '\n').encode())
+            self.console_input.clear()
+            self.console_input_server_tab.clear()
+            logger.info(f"Sent command to server: {command}")
 
     def start_server(self):
         self.console.append("Starting Server...")
+        logger.info("Starting server")
 
     def save_and_quit(self):
         self.console.append("Saving and Quitting...")
+        logger.info("Saving and quitting server")
 
     def terminate_server(self):
         self.console.append("Terminating Server...")
+        logger.info("Terminating server")
 
     def test_start_pz_server(self):
+        self.load_config()  # Ensure we have the latest config values
+        self.server_directory = self.config.get('Paths', 'PZServer', fallback="C:/default/server/directory")
         server_option = self.server_start_combobox.currentText()
-        self.server_setup_console.append(f"Test starting Project Zomboid Dedicated Server with option: {server_option}")
+        server_file = f"{server_option}.bat"
+
+        if not os.path.exists(os.path.join(self.server_directory, server_file)):
+            error_message = f"Error: {server_file} not found in {self.server_directory}."
+            self.server_setup_console.append(error_message)
+            logger.error(error_message)
+            return
+
+        self.process = QProcess(self)
+        self.process.setProgram(os.path.join(self.server_directory, server_file))
+        self.process.setProcessChannelMode(QProcess.MergedChannels)
+        self.process.readyReadStandardOutput.connect(self.display_output)
+        self.process.readyReadStandardError.connect(self.display_output)
+        logger.info(f"Starting server with {server_file} in {self.server_directory}")
+        self.process.start()
+
+    def display_output(self):
+        output = self.process.readAllStandardOutput().data().decode('cp1251', errors='ignore')
+        self.server_setup_console.append(output)
+        logger.debug(f"Server output: {output}")
+
+        if "SERVER STARTED" in output:
+            QTimer.singleShot(10000, self.quit_server)
+            logger.info("Server started. Scheduled quit command in 10 seconds.")
+
+    def quit_server(self):
+        if self.process and self.process.state() == QProcess.Running:
+            self.process.write(b"quit\n")
+            logger.info("Sent quit command to server.")
 
     def open_settings(self):
         settings_dialog = QDialog(self)
@@ -384,3 +475,10 @@ class MainWindow(QMainWindow):
 
     def exit_app(self):
         self.close()
+
+if __name__ == '__main__':
+    import sys
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
