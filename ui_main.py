@@ -381,6 +381,9 @@ class MainWindow(QMainWindow):
         self.player_list = QListWidget()
         side_layout.addWidget(self.player_list)
 
+        add_mod_button = QPushButton("Add Mod")
+        side_layout.addWidget(add_mod_button)
+
         layout.addLayout(side_layout, stretch=1)
 
         browser = BrowserEngine()
