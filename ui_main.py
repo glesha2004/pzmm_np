@@ -11,7 +11,6 @@ from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
 from file_manager import ensure_config_exists
 
-
 class Worker(QObject):
     finished = Signal()
     log = Signal(str)
@@ -26,20 +25,19 @@ class Worker(QObject):
         install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.config_path)
         self.finished.emit()
 
-
 class PZServerWorker(QObject):
     finished = Signal()
     log = Signal(str)
 
-    def __init__(self, steamcmd_path, install_dir):
+    def __init__(self, steamcmd_path, install_dir, config_path):
         super().__init__()
         self.steamcmd_path = steamcmd_path
         self.install_dir = install_dir
+        self.config_path = config_path
 
     def run(self):
-        install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir)
+        install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir, self.config_path)
         self.finished.emit()
-
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -155,7 +153,7 @@ class MainWindow(QMainWindow):
             return
 
         self.thread = QThread()
-        self.pz_worker = PZServerWorker(steamcmd_path, user_directory)
+        self.pz_worker = PZServerWorker(steamcmd_path, user_directory, self.config_path)
         self.pz_worker.moveToThread(self.thread)
 
         self.thread.started.connect(self.pz_worker.run)
@@ -169,6 +167,7 @@ class MainWindow(QMainWindow):
 
     def append_to_console(self, text):
         self.server_setup_console.append(text)
+        self.server_setup_console.ensureCursorVisible()  # Обеспечивает прокрутку консоли к последнему сообщению
 
     def get_user_directory(self):
         dialog = QFileDialog()
