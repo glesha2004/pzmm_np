@@ -1,7 +1,8 @@
 import logging
+import sqlite3
 from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
-    QSizePolicy
+    QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout
 from PySide6.QtCore import QThread, Signal, QObject, QProcess, QTimer
 from PySide6.QtGui import QAction
 import configparser
@@ -102,6 +103,7 @@ class MainWindow(QMainWindow):
         self.add_tab("Mod Manager", self.create_mod_manager_tab)
         self.add_tab("Steam Workshop", self.create_steam_workshop_tab)
         self.add_tab("LocalNet")
+        self.add_tab("Players Database", self.create_players_database_tab)
 
         self.process = None  # Переменная для процесса сервера
 
@@ -383,6 +385,110 @@ class MainWindow(QMainWindow):
 
         browser = BrowserEngine()
         layout.addWidget(browser, stretch=3)
+
+    def create_players_database_tab(self, layout):
+        self.db_path = os.path.join(self.zomboid_directory, 'db', 'servertest.db')
+        if not os.path.exists(self.db_path):
+            logger.error(f"Database file not found: {self.db_path}")
+            return
+
+        self.connection = sqlite3.connect(self.db_path)
+        self.cursor = self.connection.cursor()
+
+        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        self.tables = self.cursor.fetchall()
+        if not self.tables:
+            logger.error("No tables found in database.")
+            self.connection.close()
+            return
+
+        self.tab_widget = QTabWidget()
+        for table in self.tables:
+            table_name = table[0]
+            tab = QWidget()
+            tab_layout = QVBoxLayout()
+
+            self.cursor.execute(f"PRAGMA table_info({table_name});")
+            columns = self.cursor.fetchall()
+            column_names = [column[1] for column in columns]
+
+            table_widget = QTableWidget()
+            self.cursor.execute(f"SELECT * FROM {table_name}")
+            rows = self.cursor.fetchall()
+
+            table_widget.setRowCount(len(rows))
+            table_widget.setColumnCount(len(column_names))
+            table_widget.setHorizontalHeaderLabels(column_names)
+
+            for row_index, row in enumerate(rows):
+                for col_index, cell in enumerate(row):
+                    table_widget.setItem(row_index, col_index, QTableWidgetItem(str(cell)))
+
+            add_row_button = QPushButton("Add Row")
+            add_row_button.clicked.connect(lambda ch, t=table_name, tw=table_widget: self.add_row(t, tw))
+
+            delete_row_button = QPushButton("Delete Row")
+            delete_row_button.clicked.connect(lambda ch, t=table_name, tw=table_widget: self.delete_row(t, tw))
+
+            tab_layout.addWidget(table_widget)
+            tab_layout.addWidget(add_row_button)
+            tab_layout.addWidget(delete_row_button)
+            tab.setLayout(tab_layout)
+            self.tab_widget.addTab(tab, table_name)
+
+        layout.addWidget(self.tab_widget)
+
+    def add_row(self, table_name, table_widget):
+        columns = [table_widget.horizontalHeaderItem(i).text() for i in range(table_widget.columnCount())]
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Add Row to {table_name}")
+        form_layout = QFormLayout()
+
+        inputs = []
+        for column in columns:
+            line_edit = QLineEdit()
+            form_layout.addRow(QLabel(column), line_edit)
+            inputs.append(line_edit)
+
+        add_button = QPushButton("Add")
+        add_button.clicked.connect(lambda: self.commit_add_row(dialog, table_name, inputs, table_widget))
+        form_layout.addWidget(add_button)
+
+        dialog.setLayout(form_layout)
+        dialog.exec()
+
+    def commit_add_row(self, dialog, table_name, inputs, table_widget):
+        new_row = [input.text() for input in inputs]
+
+        if len(new_row) != table_widget.columnCount():
+            QMessageBox.warning(self, "Error", f"Please enter {table_widget.columnCount()} values.")
+            return
+
+        placeholders = ', '.join(['?'] * len(new_row))
+        sql = f"INSERT INTO {table_name} VALUES ({placeholders})"
+
+        try:
+            self.cursor.execute(sql, new_row)
+            self.connection.commit()
+            table_widget.setRowCount(table_widget.rowCount() + 1)
+            for col_index, cell in enumerate(new_row):
+                table_widget.setItem(table_widget.rowCount() - 1, col_index, QTableWidgetItem(cell))
+            dialog.accept()
+        except sqlite3.IntegrityError as e:
+            QMessageBox.warning(self, "Error", f"Failed to add row: {e}")
+
+    def delete_row(self, table_name, table_widget):
+        selected_row = table_widget.currentRow()
+        if selected_row == -1:
+            QMessageBox.warning(self, "Error", "No row selected")
+            return
+
+        row_id = table_widget.item(selected_row, 0).text()  # Assuming the first column is the primary key
+        self.cursor.execute(f"DELETE FROM {table_name} WHERE id = ?", (row_id,))
+        self.connection.commit()
+
+        table_widget.removeRow(selected_row)
 
     def send_command(self):
         command = self.console_input_server_tab.text()
