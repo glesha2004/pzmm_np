@@ -1,0 +1,32 @@
+[
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162&searchtext=",
+        "type": "mod",
+        "name": "Every Texture Optimized",
+        "Workshop ID": [
+            "3119788162"
+        ],
+        "Mod ID": [
+            "ETO_Balanced_mode",
+            "ETO_FPS",
+            "ETO_Hotfix",
+            "ETO_Performance_mode",
+            "ETO_Quality_mode"
+        ],
+        "Map Folder": []
+    },
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=2196102849&searchtext=",
+        "type": "map",
+        "name": "Raven Сreek",
+        "Workshop ID": [
+            "2196102849"
+        ],
+        "Mod ID": [
+            "RavenCreek"
+        ],
+        "Map Folder": [
+            "RavenCreek"
+        ]
+    }
+]

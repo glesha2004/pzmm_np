@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+import json
 from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
     QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout
@@ -11,6 +12,7 @@ from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
 from file_manager import ensure_config_exists
 import getpass
+from page_analizer import SteamWorkshopIdentifier
 
 # Настройка логирования
 logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
@@ -364,6 +366,93 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.inactive_mods_list)
         layout.addLayout(right_layout, stretch=2)
 
+        move_right_button.clicked.connect(self.move_mod_to_active)
+        move_left_button.clicked.connect(self.move_mod_to_inactive)
+
+    def move_mod_to_active(self):
+        current_item = self.inactive_mods_list.takeItem(self.inactive_mods_list.currentRow())
+        if current_item:
+            self.active_mods_list.addItem(current_item)
+
+    def move_mod_to_inactive(self):
+        current_item = self.active_mods_list.takeItem(self.active_mods_list.currentRow())
+        if current_item:
+            self.inactive_mods_list.addItem(current_item)
+
+    def add_mod(self):
+        current_url = self.browser.url().toString()
+        identifier = SteamWorkshopIdentifier()
+        try:
+            logger.info(f"Checking URL: {current_url}")
+            result = identifier.check_url(current_url)
+
+            # Инициализация переменных
+            page_type = None
+            mod_name = None
+            workshop_id = ""
+            mod_id = ""
+            map_folder = ""
+
+            # Поиск необходимых значений по ключевым словам
+            for item in result:
+                if "Page Type:" in item:
+                    page_type = item.split(":", 1)[1].strip()
+                elif "Mod Name:" in item:
+                    mod_name = item.split(":", 1)[1].strip()
+                    logger.info(f"Mod name found: {mod_name}")
+                elif "Workshop ID:" in item:
+                    workshop_id = item.split(":", 1)[1].strip()
+                elif "Mod ID:" in item:
+                    mod_id = item.split(":", 1)[1].strip()
+                elif "Map Folder:" in item:
+                    map_folder = item.split(":", 1)[1].strip()
+
+            if not page_type or not mod_name:
+                raise ValueError("Page Type or Mod Name not found in the result.")
+
+            mod_data = {
+                'url': current_url,
+                'type': page_type,
+                'name': mod_name,  # Сохранение имени мода
+                'Workshop ID': [id.strip() for id in workshop_id.split(",") if id.strip()],
+                'Mod ID': [id.strip() for id in mod_id.split(",") if id.strip()],
+                'Map Folder': [folder.strip() for folder in map_folder.split(",") if folder.strip()]
+            }
+
+            self.save_mod_data(mod_data)
+            self.append_to_console(f"Mod added: {mod_data}")
+            logger.info(f"Mod added: {mod_data}")
+        except Exception as e:
+            self.append_to_console(f"Failed to add mod: {str(e)}")
+            logger.error(f"Failed to add mod: {str(e)}")
+
+    def save_mod_data(self, mod_data):
+        mods_db_path = 'modsdb.json'
+        try:
+            logger.info(f"Saving mod data to {mods_db_path}")
+            if os.path.exists(mods_db_path):
+                # Открываем существующий файл и загружаем его содержимое
+                with open(mods_db_path, 'r', encoding='utf-8') as file:
+                    try:
+                        mods_db = json.load(file)
+                    except json.JSONDecodeError:
+                        # Если файл пустой или содержит некорректные данные, создаем новый список
+                        mods_db = []
+            else:
+                mods_db = []
+
+            # Добавляем новые данные
+            mods_db.append(mod_data)
+
+            # Сохраняем обновленные данные обратно в файл
+            with open(mods_db_path, 'w', encoding='utf-8') as file:
+                json.dump(mods_db, file, ensure_ascii=False, indent=4)
+
+            logger.info("Mod data saved successfully")
+        except Exception as e:
+            self.append_to_console(f"Error saving mod data: {str(e)}")
+            logger.error(f"Error saving mod data: {str(e)}")
+
     def create_steam_workshop_tab(self, layout):
         side_layout = QVBoxLayout()
 
@@ -386,8 +475,10 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(side_layout, stretch=1)
 
-        browser = BrowserEngine()
-        layout.addWidget(browser, stretch=3)
+        self.browser = BrowserEngine()
+        layout.addWidget(self.browser, stretch=3)
+
+        add_mod_button.clicked.connect(self.add_mod)  # Подключаем кнопку "Add Mod" к функции add_mod
 
     def create_players_database_tab(self, layout):
         self.db_path = os.path.join(self.zomboid_directory, 'db', 'servertest.db')
