@@ -1,52 +1,31 @@
 [
     {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3300487451",
-        "type": "mod",
-        "name": "Foraging Screen Illustrations",
-        "Workshop ID": [
-            "3300487451"
-        ],
-        "Mod ID": [
-            "ForagignScreenIllustrations"
-        ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162&searchtext=",
-        "type": "mod",
-        "name": "Every Texture Optimized",
-        "Workshop ID": [
-            "3119788162"
-        ],
-        "Mod ID": [
-            "ETO_Balanced_mode",
-            "ETO_FPS",
-            "ETO_Hotfix",
-            "ETO_Performance_mode",
-            "ETO_Quality_mode"
-        ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3296852138",
-        "type": "mod",
-        "name": "More Jackets",
-        "Workshop ID": [
-            "3296852138"
-        ],
-        "Mod ID": [
-            "More Jackets"
-        ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=2719327441&searchtext=",
-        "type": "map",
         "name": "Snake's Mod Pack",
         "Workshop ID": [
             "2719327441"
         ],
         "Mod ID": [
+            "AliceSPack",
+            "AmmoMaker",
+            "Barco Abandonado",
+            "BatesMetalicosRevived",
+            "CustomMapBridge",
+            "Factory",
+            "FuelTanksMod",
+            "LeGourmetRevolution",
+            "LootZetaEnhancedEdition",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "RPropaneTank",
+            "Riverside Gunstore",
+            "SkillsMag",
+            "SnakeClothingMod",
+            "SnakeMansion",
+            "SnakeUtilsPack",
+            "TableSaw",
+            "TallerMecanico",
+            "WPA",
+            "ZombiesAtWorkEvo41",
             "AliceSPack",
             "AmmoMaker",
             "Barco Abandonado",
@@ -79,22 +58,23 @@
             "mechanicsplaces",
             "tluisville",
             "tmarch",
+            "tvalley",
+            "BarcoAbandonado",
+            "Factory",
+            "Mansion",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "Riverside Gunstore",
+            "mechanicsplaces",
+            "tluisville",
+            "tmarch",
             "tvalley"
-        ]
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3301603161",
-        "type": "map",
-        "name": "10 Years Later - Survivor Cargo Ship Romero - Frigate",
-        "Workshop ID": [
-            "3301603161"
         ],
-        "Mod ID": [
-            "10YL_RomeroFrigate"
+        "disabled_mod_ids": [
+            "AliceSPack",
+            "AmmoMaker",
+            "BatesMetalicosRevived"
         ],
-        "Map Folder": [
-            "10YL_Romero_Frigate",
-            "10YL_Romero_Frigate_standalone"
-        ]
+        "disabled_map_folders": []
     }
 ]

@@ -825,55 +825,61 @@ class MainWindow(QMainWindow):
     def remove_selected_mod(self):
         """Удаляет выбранный мод из баз данных и списков."""
         current_item = self.active_mods_tree.currentItem() or self.inactive_mods_list.currentItem()
-        mod_name = None
-        if isinstance(current_item, QTreeWidgetItem) and current_item.parent() is None:
-            mod_name = current_item.text(0)
-        elif isinstance(current_item, QListWidgetItem):
-            mod_name = current_item.text()
 
-        if mod_name:
-            mods_db_path = 'modsdb.json'
-            active_mods_db_path = 'activemods.json'
+        if not current_item:
+            QMessageBox.warning(self, "Error", "No mod selected for removal.")
+            return
 
-            # Удаляем мод из базы данных modsdb.json
-            try:
-                with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
-                    mods_db = json.load(mods_file)
+        mod_name = current_item.text(0) if isinstance(current_item, QTreeWidgetItem) else current_item.text()
 
-                mods_db = [mod for mod in mods_db if mod.get('name') != mod_name]
+        if not mod_name:
+            QMessageBox.warning(self, "Error", "Unable to determine the mod to remove.")
+            return
 
-                with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
-                    json.dump(mods_db, mods_file, ensure_ascii=False, indent=4)
+        # Удаляем мод из базы данных modsdb.json
+        mods_db_path = 'modsdb.json'
+        try:
+            with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
+                mods_db = json.load(mods_file)
 
-                logger.info(f"Removed mod from modsdb.json: {mod_name}")
-            except Exception as e:
-                logger.error(f"Failed to remove mod from modsdb.json: {str(e)}")
+            mods_db = [mod for mod in mods_db if mod.get('name') != mod_name]
 
-            # Удаляем мод из базы данных activemods.json
-            try:
-                if os.path.exists(active_mods_db_path):
-                    with open(active_mods_db_path, 'r', encoding='utf-8') as active_mods_file:
-                        try:
-                            active_mods_db = json.load(active_mods_file)
-                        except json.JSONDecodeError:
-                            active_mods_db = []
+            with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
+                json.dump(mods_db, mods_file, ensure_ascii=False, indent=4)
 
-                    active_mods_db = [mod for mod in active_mods_db if mod.get('name') != mod_name]
+            logger.info(f"Removed mod from modsdb.json: {mod_name}")
+        except Exception as e:
+            logger.error(f"Failed to remove mod from modsdb.json: {str(e)}")
 
-                    with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
-                        json.dump(active_mods_db, active_mods_file, ensure_ascii=False, indent=4)
+        # Удаляем мод из базы данных activemods.json
+        active_mods_db_path = 'activemods.json'
+        try:
+            if os.path.exists(active_mods_db_path):
+                with open(active_mods_db_path, 'r', encoding='utf-8') as active_mods_file:
+                    try:
+                        active_mods_db = json.load(active_mods_file)
+                    except json.JSONDecodeError:
+                        active_mods_db = []
 
-                    logger.info(f"Removed mod from activemods.json: {mod_name}")
-            except Exception as e:
-                logger.error(f"Failed to remove mod from activemods.json: {str(e)}")
+                active_mods_db = [mod for mod in active_mods_db if mod.get('name') != mod_name]
 
-            # Удаляем мод из списка активных или неактивных модов
-            if isinstance(current_item, QTreeWidgetItem):
-                self.active_mods_tree.takeTopLevelItem(self.active_mods_tree.indexOfTopLevelItem(current_item))
-            elif isinstance(current_item, QListWidgetItem):
-                self.inactive_mods_list.takeItem(self.inactive_mods_list.currentRow())
+                with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+                    json.dump(active_mods_db, active_mods_file, ensure_ascii=False, indent=4)
 
-            logger.info(f"Mod {mod_name} removed from UI lists.")
+                logger.info(f"Removed mod from activemods.json: {mod_name}")
+        except Exception as e:
+            logger.error(f"Failed to remove mod from activemods.json: {str(e)}")
+
+        # Удаляем мод из UI списка
+        if isinstance(current_item, QTreeWidgetItem):
+            root_index = self.active_mods_tree.indexOfTopLevelItem(current_item)
+            if root_index != -1:
+                self.active_mods_tree.takeTopLevelItem(root_index)
+                logger.info(f"Mod {mod_name} removed from Active Mods list.")
+        else:
+            row = self.inactive_mods_list.row(current_item)
+            self.inactive_mods_list.takeItem(row)
+            logger.info(f"Mod {mod_name} removed from Inactive Mods list.")
 
     def remove_all_mods(self):
         """Удаляет все моды и очищает базы данных."""
