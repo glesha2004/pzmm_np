@@ -22,7 +22,6 @@ logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w',
                     format='%(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-
 class Worker(QObject):
     finished = Signal()
     log = Signal(str)
@@ -42,7 +41,6 @@ class Worker(QObject):
             self.log.emit(f"Error during SteamCMD installation: {e}")
         self.finished.emit()
 
-
 class PZServerWorker(QObject):
     finished = Signal()
     log = Signal(str)
@@ -55,14 +53,12 @@ class PZServerWorker(QObject):
 
     def run(self):
         try:
-            self.log.emit(
-                f"Starting Project Zomboid server installation in {self.install_dir} using SteamCMD from {self.steamcmd_path}")
+            self.log.emit(f"Starting Project Zomboid server installation in {self.install_dir} using SteamCMD from {self.steamcmd_path}")
             install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir, self.config_path)
         except Exception as e:
             logger.error(f"Error during Project Zomboid server installation: {e}")
             self.log.emit(f"Error during Project Zomboid server installation: {e}")
         self.finished.emit()
-
 
 class MainWindow(QMainWindow):
     def __init__(self, server_directory=None):
@@ -71,7 +67,7 @@ class MainWindow(QMainWindow):
         self.config = configparser.ConfigParser()
         ensure_config_exists(self.config_path)  # Проверка и создание config.ini
         self.load_config()
-        self.server_directory = server_directory or self.config.get('Paths', 'PZServer',
+        self.server_directory = server_directory or self.config.get('Paths', 'pzserver',
                                                                     fallback="C:/default/server/directory")
         self.zomboid_directory = self.get_zomboid_directory()  # Получаем путь к папке Zomboid
         self.setWindowTitle('Project Zomboid Mod Manager')
@@ -147,6 +143,81 @@ class MainWindow(QMainWindow):
         username = getpass.getuser()
         zomboid_path = f"C:/Users/{username}/Zomboid"
         return zomboid_path
+
+    def open_options(self):
+        options_dialog = QDialog(self)
+        options_dialog.setWindowTitle("Options")
+        options_dialog.setGeometry(100, 100, 300, 400)
+
+        layout = QVBoxLayout()
+
+        self.light_theme_rb = QRadioButton("Light")
+        self.light_theme_rb.setChecked(self.current_theme == 'Light')
+        layout.addWidget(self.light_theme_rb)
+
+        self.light_dark_theme_rb = QRadioButton("Light Dark")
+        self.light_dark_theme_rb.setChecked(self.current_theme == 'Light Dark')
+        layout.addWidget(self.light_dark_theme_rb)
+
+        self.dark_theme_rb = QRadioButton("Dark")
+        self.dark_theme_rb.setChecked(self.current_theme == 'Dark')
+        layout.addWidget(self.dark_theme_rb)
+
+        # Поля для ввода путей
+        self.steamcmd_path_edit = QLineEdit(self.config.get('Paths', 'steamcmd', fallback='C:/steamcmd'))
+        layout.addWidget(QLabel("Path to SteamCMD:"))
+        layout.addWidget(self.steamcmd_path_edit)
+
+        self.pzserver_path_edit = QLineEdit(self.config.get('Paths', 'pzserver', fallback='C:/pzserver'))
+        layout.addWidget(QLabel("Path to PZ Server:"))
+        layout.addWidget(self.pzserver_path_edit)
+
+        self.zomboid_path_edit = QLineEdit(self.config.get('Paths', 'zomboid', fallback=self.get_zomboid_directory()))
+        layout.addWidget(QLabel("Path to Zomboid:"))
+        layout.addWidget(self.zomboid_path_edit)
+
+        apply_button = QPushButton("Apply")
+        apply_button.clicked.connect(self.apply_and_save_settings)
+        layout.addWidget(apply_button)
+
+        options_dialog.setLayout(layout)
+        options_dialog.exec()
+
+    def apply_and_save_settings(self):
+        # Сохраняем тему
+        if self.light_theme_rb.isChecked():
+            self.current_theme = 'Light'
+        elif self.light_dark_theme_rb.isChecked():
+            self.current_theme = 'Light Dark'
+        elif self.dark_theme_rb.isChecked():
+            self.current_theme = 'Dark'
+
+        # Применяем тему
+        self.apply_theme(self.current_theme)
+
+        # Сохраняем пути в config.ini
+        if not self.config.has_section('Paths'):
+            self.config.add_section('Paths')
+        self.config.set('Paths', 'steamcmd', self.steamcmd_path_edit.text())
+        self.config.set('Paths', 'pzserver', self.pzserver_path_edit.text())
+        self.config.set('Paths', 'zomboid', self.zomboid_path_edit.text())
+
+        # Запись конфигурации в файл
+        with open(self.config_path, 'w') as configfile:
+            self.config.write(configfile)
+
+        logger.info("Settings applied and saved.")
+
+    def apply_theme(self, theme):
+        if theme == 'Light':
+            self.setStyleSheet("")
+        elif theme == 'Light Dark':
+            self.setStyleSheet("QWidget { background-color: #aaaaaa; color: #000000; }")
+        elif theme == 'Dark':
+            self.setStyleSheet("QWidget { background-color: #333333; color: #ffffff; }")
+
+    def exit_app(self):
+        self.close()
 
     def create_server_setup_tab(self, layout):
         top_layout = QHBoxLayout()  # Горизонтальное расположение для верхнего макета
@@ -226,7 +297,7 @@ class MainWindow(QMainWindow):
 
     def install_pz_server(self):
         user_directory = self.get_user_directory()
-        steamcmd_path = self.config.get('Paths', 'SteamCMD', fallback='')
+        steamcmd_path = self.config.get('Paths', 'steamcmd', fallback='')
 
         if not user_directory:
             self.append_to_console("Installation cancelled.")
@@ -718,7 +789,7 @@ class MainWindow(QMainWindow):
 
     def test_start_pz_server(self):
         self.load_config()  # Ensure we have the latest config values
-        self.server_directory = self.config.get('Paths', 'PZServer', fallback="C:/default/server/directory")
+        self.server_directory = self.config.get('Paths', 'pzserver', fallback="C:/default/server/directory")
         server_option = self.server_start_combobox.currentText()
         server_file = f"{server_option}.bat"
 
@@ -741,50 +812,6 @@ class MainWindow(QMainWindow):
         settings_dialog.setWindowTitle("Settings")
         settings_dialog.setGeometry(100, 100, 300, 400)
         settings_dialog.exec()
-
-    def open_options(self):
-        options_dialog = QDialog(self)
-        options_dialog.setWindowTitle("Options")
-        options_dialog.setGeometry(100, 100, 300, 400)
-
-        layout = QVBoxLayout()
-
-        self.light_theme_rb = QRadioButton("Light")
-        self.light_theme_rb.setChecked(self.current_theme == 'Light')
-        layout.addWidget(self.light_theme_rb)
-
-        self.light_dark_theme_rb = QRadioButton("Light Dark")
-        self.light_dark_theme_rb.setChecked(self.current_theme == 'Light Dark')
-        layout.addWidget(self.light_dark_theme_rb)
-
-        self.dark_theme_rb = QRadioButton("Dark")
-        self.dark_theme_rb.setChecked(self.current_theme == 'Dark')
-        layout.addWidget(self.dark_theme_rb)
-
-        apply_button = QPushButton("Apply")
-        apply_button.clicked.connect(self.apply_and_save_theme)
-        layout.addWidget(apply_button)
-
-        options_dialog.setLayout(layout)
-        options_dialog.exec()
-
-    def apply_and_save_theme(self):
-        if 'Settings' not in self.config:
-            self.config['Settings'] = {}
-        self.config.set('Settings', 'theme', self.current_theme)
-
-        self.apply_theme(self.current_theme)
-
-        with open(self.config_path, 'w') as configfile:
-            self.config.write(configfile)
-
-    def apply_theme(self, theme):
-        if theme == 'Light':
-            self.setStyleSheet("")
-        elif theme == 'Light Dark':
-            self.setStyleSheet("QWidget { background-color: #aaaaaa; color: #000000; }")
-        elif theme == 'Dark':
-            self.setStyleSheet("QWidget { background-color: #333333; color: #ffffff; }")
 
     def exit_app(self):
         self.close()
