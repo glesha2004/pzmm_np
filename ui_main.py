@@ -13,7 +13,7 @@ from PySide6.QtGui import QAction, QBrush, QColor
 import configparser
 from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
-from file_manager import ensure_config_exists
+from file_manager import ensure_config_exists, start_modpack_observer
 from page_analizer import SteamWorkshopIdentifier
 from workers import Worker, PZServerWorker
 import getpass
@@ -83,6 +83,11 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self.on_tab_changed)
 
         self.process = None  # Переменная для процесса сервера
+
+        # Запускаем наблюдатель за папкой с модпаками
+        self.modpacks_dir = os.path.join(os.getcwd(), 'modpacks')
+        self.observer = start_modpack_observer(self.modpacks_list, self.modpacks_dir)
+
 
     def load_config(self):
         if os.path.exists(self.config_path):
@@ -377,11 +382,26 @@ class MainWindow(QMainWindow):
         left_spacer.addItem(QSpacerItem(1, 1, QSizePolicy.Expanding, QSizePolicy.Minimum))
         layout.addLayout(left_spacer, stretch=1)
 
+        # New Modpacks list and label
+        modpacks_layout = QVBoxLayout()
+        modpacks_layout.addWidget(QLabel("Modpacks"))
+        self.modpacks_list = QListWidget()
+        modpacks_layout.addWidget(self.modpacks_list)
+        layout.addLayout(modpacks_layout, stretch=2)
+
         # Left list and label
         left_layout = QVBoxLayout()
         left_layout.addWidget(QLabel("Active Mods"))
         self.active_mods_tree = QTreeWidget()
         self.active_mods_tree.setHeaderHidden(True)
+        left_layout.addWidget(self.active_mods_tree)
+        layout.addLayout(left_layout, stretch=2)
+
+        # Left list and label for Active Mods
+        left_layout = QVBoxLayout()
+        left_layout.addWidget(QLabel("Active Mods"))
+        self.active_mods_tree = QTreeWidget()
+        self.active_mods_tree.setHeaderHidden(True)  # Скрываем заголовок для более компактного отображения
         left_layout.addWidget(self.active_mods_tree)
         layout.addLayout(left_layout, stretch=2)
 
@@ -412,7 +432,7 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(button_layout, stretch=1)
 
-        # Right list and label
+        # Right list and label for Inactive Mods
         right_layout = QVBoxLayout()
         right_layout.addWidget(QLabel("Inactive Mods"))
         self.inactive_mods_list = QListWidget()
@@ -426,6 +446,28 @@ class MainWindow(QMainWindow):
         reset_to_default_button.clicked.connect(self.reset_to_default)
         remove_mod_button.clicked.connect(self.remove_selected_mod)
         remove_all_mods_button.clicked.connect(self.remove_all_mods)
+
+        # Load the modpacks into the new Modpacks list
+        self.load_modpacks()
+
+    def closeEvent(self, event):
+        """Останавливаем наблюдателя при закрытии приложения."""
+        self.observer.stop()
+        self.observer.join()
+        event.accept()
+
+    def load_modpacks(self):
+        """Загружает список доступных модпаков в модуль Mod Manager."""
+        modpacks_dir = os.path.join(os.getcwd(), 'modpacks')
+        self.modpacks_list.clear()
+
+        if os.path.exists(modpacks_dir):
+            for filename in os.listdir(modpacks_dir):
+                if filename.endswith('.json'):
+                    self.modpacks_list.addItem(filename)
+                    logger.info(f"Loaded modpack: {filename}")
+        else:
+            logger.warning(f"Modpacks directory not found: {modpacks_dir}")
 
     def load_inactive_mods(self):
         """Загружает моды из базы данных и добавляет их в список Inactive Mods, исключая те, что уже в Active Mods."""
@@ -1048,6 +1090,7 @@ class MainWindow(QMainWindow):
         if self.tabs.tabText(index) == "Mod Manager":
             self.load_inactive_mods()  # Загружаем моды и удаляем дубликаты при открытии вкладки Mod Manager
             self.load_active_mods()  # Загружаем активные моды
+            self.load_modpacks()  # Загружаем список модпаков
         else:
             # Очищаем список модов при смене вкладки
             self.mod_list_widget.clear()

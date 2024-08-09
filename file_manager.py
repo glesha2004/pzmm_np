@@ -2,6 +2,8 @@
 
 import os
 import configparser
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 def ensure_config_exists(config_path):
     config = configparser.ConfigParser()
@@ -37,3 +39,39 @@ def ensure_config_exists(config_path):
     # Сохраняем изменения
     with open(config_path, 'w') as configfile:
         config.write(configfile)
+
+class ModpackFolderHandler(FileSystemEventHandler):
+    def __init__(self, modpacks_list_widget, modpacks_dir):
+        self.modpacks_list_widget = modpacks_list_widget
+        self.modpacks_dir = modpacks_dir
+
+    def on_modified(self, event):
+        if not event.is_directory:
+            self.update_modpacks_list()
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self.update_modpacks_list()
+
+    def on_deleted(self, event):
+        if not event.is_directory:
+            self.update_modpacks_list()
+
+    def update_modpacks_list(self):
+        """Обновляет список модпаков в модуле Mod Manager."""
+        self.modpacks_list_widget.clear()
+
+        if os.path.exists(self.modpacks_dir):
+            for filename in os.listdir(self.modpacks_dir):
+                if filename.endswith('.json'):
+                    self.modpacks_list_widget.addItem(filename)
+                    print(f"Loaded modpack: {filename}")
+        else:
+            print(f"Modpacks directory not found: {self.modpacks_dir}")
+
+def start_modpack_observer(modpacks_list_widget, modpacks_dir):
+    observer = Observer()
+    modpack_handler = ModpackFolderHandler(modpacks_list_widget, modpacks_dir)
+    observer.schedule(modpack_handler, modpacks_dir, recursive=False)
+    observer.start()
+    return observer
