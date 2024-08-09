@@ -1,22 +1,27 @@
 import logging
-import sqlite3
 import json
-from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QMenu, QDialog, \
-    QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog, QSpacerItem, \
-    QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout
-from PySide6.QtCore import QThread, Signal, QObject, QProcess, QTimer
+import os
+import sqlite3
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QDialog,
+    QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog,
+    QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout
+)
+from PySide6.QtCore import QThread, Signal, QObject, QUrl, QProcess, QTimer
 from PySide6.QtGui import QAction
 import configparser
-import os
 from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
 from file_manager import ensure_config_exists
-import getpass
 from page_analizer import SteamWorkshopIdentifier
+import getpass
 
 # Настройка логирования
-logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w',
+                    format='%(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 class Worker(QObject):
     finished = Signal()
@@ -37,6 +42,7 @@ class Worker(QObject):
             self.log.emit(f"Error during SteamCMD installation: {e}")
         self.finished.emit()
 
+
 class PZServerWorker(QObject):
     finished = Signal()
     log = Signal(str)
@@ -49,12 +55,14 @@ class PZServerWorker(QObject):
 
     def run(self):
         try:
-            self.log.emit(f"Starting Project Zomboid server installation in {self.install_dir} using SteamCMD from {self.steamcmd_path}")
+            self.log.emit(
+                f"Starting Project Zomboid server installation in {self.install_dir} using SteamCMD from {self.steamcmd_path}")
             install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir, self.config_path)
         except Exception as e:
             logger.error(f"Error during Project Zomboid server installation: {e}")
             self.log.emit(f"Error during Project Zomboid server installation: {e}")
         self.finished.emit()
+
 
 class MainWindow(QMainWindow):
     def __init__(self, server_directory=None):
@@ -63,10 +71,15 @@ class MainWindow(QMainWindow):
         self.config = configparser.ConfigParser()
         ensure_config_exists(self.config_path)  # Проверка и создание config.ini
         self.load_config()
-        self.server_directory = server_directory or self.config.get('Paths', 'PZServer', fallback="C:/default/server/directory")
+        self.server_directory = server_directory or self.config.get('Paths', 'PZServer',
+                                                                    fallback="C:/default/server/directory")
         self.zomboid_directory = self.get_zomboid_directory()  # Получаем путь к папке Zomboid
         self.setWindowTitle('Project Zomboid Mod Manager')
         self.setGeometry(100, 100, 1440, 720)
+
+        # История навигации
+        self.history = []
+        self.history_index = -1
 
         # Reading settings from config.ini
         self.current_theme = self.config.get('Settings', 'theme', fallback='Light')
@@ -407,51 +420,52 @@ class MainWindow(QMainWindow):
                 elif "Map Folder:" in item:
                     map_folder = item.split(":", 1)[1].strip()
 
-            if not page_type or not mod_name:
-                raise ValueError("Page Type or Mod Name not found in the result.")
+            if not page_type or not mod_name or not workshop_id:
+                raise ValueError("Page Type, Mod Name, or Workshop ID not found in the result.")
 
+            # Загрузка существующих данных из базы
+            mods_db_path = 'modsdb.json'
+            if os.path.exists(mods_db_path):
+                with open(mods_db_path, 'r', encoding='utf-8') as file:
+                    try:
+                        mods_db = json.load(file)
+                    except json.JSONDecodeError:
+                        mods_db = []
+            else:
+                mods_db = []
+
+            # Проверка на дублирование по Workshop ID
+            for mod in mods_db:
+                if workshop_id in mod.get('Workshop ID', []):
+                    # Сообщение пользователю о том, что мод уже установлен
+                    self.append_to_console(f"Mod already installed: {mod_name} (Workshop ID: {workshop_id})")
+                    logger.info(f"Mod already installed: {mod_name} (Workshop ID: {workshop_id})")
+
+                    # Создание всплывающего окна для уведомления
+                    QMessageBox.information(self, "Mod Already Installed",
+                                            f"The mod '{mod_name}' (Workshop ID: {workshop_id}) is already installed.")
+                    return
+
+            # Формирование данных для нового мода
             mod_data = {
                 'url': current_url,
                 'type': page_type,
-                'name': mod_name,  # Сохранение имени мода
-                'Workshop ID': [id.strip() for id in workshop_id.split(",") if id.strip()],
+                'name': mod_name,
+                'Workshop ID': [workshop_id.strip()],
                 'Mod ID': [id.strip() for id in mod_id.split(",") if id.strip()],
                 'Map Folder': [folder.strip() for folder in map_folder.split(",") if folder.strip()]
             }
 
-            self.save_mod_data(mod_data)
+            # Сохранение новых данных
+            mods_db.append(mod_data)
+            with open(mods_db_path, 'w', encoding='utf-8') as file:
+                json.dump(mods_db, file, ensure_ascii=False, indent=4)
+
             self.append_to_console(f"Mod added: {mod_data}")
             logger.info(f"Mod added: {mod_data}")
         except Exception as e:
             self.append_to_console(f"Failed to add mod: {str(e)}")
             logger.error(f"Failed to add mod: {str(e)}")
-
-    def save_mod_data(self, mod_data):
-        mods_db_path = 'modsdb.json'
-        try:
-            logger.info(f"Saving mod data to {mods_db_path}")
-            if os.path.exists(mods_db_path):
-                # Открываем существующий файл и загружаем его содержимое
-                with open(mods_db_path, 'r', encoding='utf-8') as file:
-                    try:
-                        mods_db = json.load(file)
-                    except json.JSONDecodeError:
-                        # Если файл пустой или содержит некорректные данные, создаем новый список
-                        mods_db = []
-            else:
-                mods_db = []
-
-            # Добавляем новые данные
-            mods_db.append(mod_data)
-
-            # Сохраняем обновленные данные обратно в файл
-            with open(mods_db_path, 'w', encoding='utf-8') as file:
-                json.dump(mods_db, file, ensure_ascii=False, indent=4)
-
-            logger.info("Mod data saved successfully")
-        except Exception as e:
-            self.append_to_console(f"Error saving mod data: {str(e)}")
-            logger.error(f"Error saving mod data: {str(e)}")
 
     def create_steam_workshop_tab(self, layout):
         side_layout = QVBoxLayout()
@@ -478,7 +492,47 @@ class MainWindow(QMainWindow):
         self.browser = BrowserEngine()
         layout.addWidget(self.browser, stretch=3)
 
-        add_mod_button.clicked.connect(self.add_mod)  # Подключаем кнопку "Add Mod" к функции add_mod
+        # Подключение кнопок к функциям
+        back_button.clicked.connect(self.navigate_back)
+        home_button.clicked.connect(self.navigate_home)
+        forward_button.clicked.connect(self.navigate_forward)
+
+        # Обработка события загрузки URL
+        self.browser.urlChanged.connect(lambda url: self.add_to_history(url.toString()))
+
+        add_mod_button.clicked.connect(self.add_mod)
+
+    def navigate_back(self):
+        if self.history_index > 0:
+            self.history_index -= 1
+            url = self.history[self.history_index]
+            self.browser.setUrl(QUrl(url))
+            logger.info(f"Navigating back to: {url}")
+
+    def navigate_home(self):
+        home_url = "https://steamcommunity.com/app/108600/workshop/"
+        self.browser.setUrl(QUrl(home_url))
+        logger.info(f"Navigating to home: {home_url}")
+
+        # Обновляем историю навигации
+        if self.history_index == -1 or self.history[self.history_index] != home_url:
+            self.history.append(home_url)
+            self.history_index += 1
+
+    def navigate_forward(self):
+        if self.history_index < len(self.history) - 1:
+            self.history_index += 1
+            url = self.history[self.history_index]
+            self.browser.setUrl(QUrl(url))
+            logger.info(f"Navigating forward to: {url}")
+
+    def add_to_history(self, url):
+        if self.history_index == -1 or self.history[self.history_index] != url:
+            # Удаляем все элементы впереди, если мы перемещаемся на новую страницу
+            self.history = self.history[:self.history_index + 1]
+            self.history.append(url)
+            self.history_index += 1
+            logger.info(f"Added to history: {url}")
 
     def create_players_database_tab(self, layout):
         self.db_path = os.path.join(self.zomboid_directory, 'db', 'servertest.db')
@@ -723,8 +777,10 @@ class MainWindow(QMainWindow):
     def exit_app(self):
         self.close()
 
+
 if __name__ == '__main__':
     import sys
+
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

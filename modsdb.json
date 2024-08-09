@@ -28,5 +28,41 @@
         "Map Folder": [
             "RavenCreek"
         ]
+    },
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3296852138&searchtext=",
+        "type": "mod",
+        "name": "More Jackets",
+        "Workshop ID": [
+            "3296852138"
+        ],
+        "Mod ID": [
+            "More Jackets"
+        ],
+        "Map Folder": []
+    },
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3300487451",
+        "type": "mod",
+        "name": "Foraging Screen Illustrations",
+        "Workshop ID": [
+            "3300487451"
+        ],
+        "Mod ID": [
+            "ForagignScreenIllustrations"
+        ],
+        "Map Folder": []
+    },
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3282215361",
+        "type": "mod",
+        "name": "Functional Clothesline",
+        "Workshop ID": [
+            "3282215361"
+        ],
+        "Mod ID": [
+            "ClothingLine"
+        ],
+        "Map Folder": []
     }
 ]
