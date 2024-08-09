@@ -26,5 +26,75 @@
             "ETO_Quality_mode"
         ],
         "Map Folder": []
+    },
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3296852138",
+        "type": "mod",
+        "name": "More Jackets",
+        "Workshop ID": [
+            "3296852138"
+        ],
+        "Mod ID": [
+            "More Jackets"
+        ],
+        "Map Folder": []
+    },
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=2719327441&searchtext=",
+        "type": "map",
+        "name": "Snake's Mod Pack",
+        "Workshop ID": [
+            "2719327441"
+        ],
+        "Mod ID": [
+            "AliceSPack",
+            "AmmoMaker",
+            "Barco Abandonado",
+            "BatesMetalicosRevived",
+            "CustomMapBridge",
+            "Factory",
+            "FuelTanksMod",
+            "LeGourmetRevolution",
+            "LootZetaEnhancedEdition",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "RPropaneTank",
+            "Riverside Gunstore",
+            "SkillsMag",
+            "SnakeClothingMod",
+            "SnakeMansion",
+            "SnakeUtilsPack",
+            "TableSaw",
+            "TallerMecanico",
+            "WPA",
+            "ZombiesAtWorkEvo41"
+        ],
+        "Map Folder": [
+            "BarcoAbandonado",
+            "Factory",
+            "Mansion",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "Riverside Gunstore",
+            "mechanicsplaces",
+            "tluisville",
+            "tmarch",
+            "tvalley"
+        ]
+    },
+    {
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3301603161",
+        "type": "map",
+        "name": "10 Years Later - Survivor Cargo Ship Romero - Frigate",
+        "Workshop ID": [
+            "3301603161"
+        ],
+        "Mod ID": [
+            "10YL_RomeroFrigate"
+        ],
+        "Map Folder": [
+            "10YL_Romero_Frigate",
+            "10YL_Romero_Frigate_standalone"
+        ]
     }
 ]

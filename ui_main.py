@@ -4,8 +4,9 @@ import os
 import sqlite3
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QDialog,
-    QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog,
-    QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout, QInputDialog
+    QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QTreeWidget, QTreeWidgetItem,
+    QFileDialog, QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout, QInputDialog,
+    QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import QThread, Signal, QObject, QUrl, QProcess, QTimer, Qt
 from PySide6.QtGui import QAction
@@ -21,7 +22,6 @@ import getpass
 logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w',
                     format='%(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 
 class MainWindow(QMainWindow):
     def __init__(self, server_directory=None):
@@ -380,8 +380,9 @@ class MainWindow(QMainWindow):
         # Left list and label
         left_layout = QVBoxLayout()
         left_layout.addWidget(QLabel("Active Mods"))
-        self.active_mods_list = QListWidget()
-        left_layout.addWidget(self.active_mods_list)
+        self.active_mods_tree = QTreeWidget()
+        self.active_mods_tree.setHeaderHidden(True)
+        left_layout.addWidget(self.active_mods_tree)
         layout.addLayout(left_layout, stretch=2)
 
         # Button layout
@@ -471,27 +472,41 @@ class MainWindow(QMainWindow):
                 except json.JSONDecodeError:
                     active_mods_db = []
 
-            self.active_mods_list.clear()  # Очищаем текущий список
+            self.active_mods_tree.clear()  # Очищаем текущий список
             active_mods_names = set()  # Создаем набор для хранения уникальных имен модов
             for mod in active_mods_db:
                 mod_name = mod.get('name', 'Unknown Mod')
                 if mod_name not in active_mods_names:
-                    self.active_mods_list.addItem(mod_name)
+                    # Создаем элемент дерева для мода
+                    mod_item = QTreeWidgetItem([mod_name])
+
+                    # Добавляем подэлементы для Mod ID и Map Folder
+                    mod_ids = mod.get('Mod ID', [])
+                    map_folders = mod.get('Map Folder', [])
+                    if mod_ids:
+                        mod_id_item = QTreeWidgetItem(mod_item, ["Mod ID"])
+                        for mod_id in mod_ids:
+                            QTreeWidgetItem(mod_id_item, [mod_id])
+                    if map_folders:
+                        map_folder_item = QTreeWidgetItem(mod_item, ["Map Folder"])
+                        for map_folder in map_folders:
+                            QTreeWidgetItem(map_folder_item, [map_folder])
+
+                    self.active_mods_tree.addTopLevelItem(mod_item)
                     active_mods_names.add(mod_name)
                     logger.info(f"Loaded active mod: {mod_name}")
-            else:
-                logger.warning(f"Active mods database not found: {active_mods_db_path}")
+        else:
+            logger.warning(f"Active mods database not found: {active_mods_db_path}")
 
     def move_mod_to_active(self):
         current_item = self.inactive_mods_list.takeItem(self.inactive_mods_list.currentRow())
         if current_item:
             mod_name = current_item.text()
             # Проверяем, если мод уже существует в активных модах, не добавляем его снова
-            for i in range(self.active_mods_list.count()):
-                if self.active_mods_list.item(i).text() == mod_name:
+            for i in range(self.active_mods_tree.topLevelItemCount()):
+                if self.active_mods_tree.topLevelItem(i).text(0) == mod_name:
                     logger.info(f"Mod {mod_name} already in active mods list.")
                     return
-            self.active_mods_list.addItem(mod_name)
 
             # Копируем данные мода из modsdb.json в activemods.json
             mods_db_path = 'modsdb.json'
@@ -517,19 +532,25 @@ class MainWindow(QMainWindow):
                         with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
                             json.dump(active_mods_db, active_mods_file, ensure_ascii=False, indent=4)
                         logger.info(f"Copied mod to active mods: {mod_name}")
+
+                    # Обновляем UI
+                    self.load_active_mods()
+
             except Exception as e:
                 logger.error(f"Failed to move mod to active: {str(e)}")
 
     def move_mod_to_inactive(self):
-        current_item = self.active_mods_list.takeItem(self.active_mods_list.currentRow())
-        if current_item:
-            mod_name = current_item.text()
+        current_item = self.active_mods_tree.currentItem()
+        if current_item and current_item.parent() is None:  # Проверяем, что выбран верхний элемент
+            mod_name = current_item.text(0)
+            self.active_mods_tree.takeTopLevelItem(self.active_mods_tree.indexOfTopLevelItem(current_item))
+
             # Проверяем, если мод уже существует в неактивных модах, не добавляем его снова
             for i in range(self.inactive_mods_list.count()):
                 if self.inactive_mods_list.item(i).text() == mod_name:
                     logger.info(f"Mod {mod_name} already in inactive mods list.")
                     return
-            self.inactive_mods_list.addItem(current_item)
+            self.inactive_mods_list.addItem(mod_name)
 
             # Удаляем мод из activemods.json
             active_mods_db_path = 'activemods.json'
@@ -547,6 +568,7 @@ class MainWindow(QMainWindow):
                         json.dump(active_mods_db, active_mods_file, ensure_ascii=False, indent=4)
 
                     logger.info(f"Removed mod from active mods: {mod_name}")
+
             except Exception as e:
                 logger.error(f"Failed to remove mod from active: {str(e)}")
 
@@ -581,8 +603,8 @@ class MainWindow(QMainWindow):
 
         # Сбор информации об активных модах
         active_mods_data = []
-        for i in range(self.active_mods_list.count()):
-            mod_name = self.active_mods_list.item(i).text()
+        for i in range(self.active_mods_tree.topLevelItemCount()):
+            mod_name = self.active_mods_tree.topLevelItem(i).text(0)
             # Ищем мод в базе данных
             mod_info = next((mod for mod in mods_db if mod.get('name') == mod_name), None)
             if mod_info:
@@ -638,7 +660,7 @@ class MainWindow(QMainWindow):
         with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
             json.dump(mods_db, mods_file, ensure_ascii=False, indent=4)
 
-        # Загрузка активных модов из пресета
+        # Обновление списка активных модов
         active_mods_db_path = 'activemods.json'
         with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
             json.dump(preset_mods, active_mods_file, ensure_ascii=False, indent=4)
@@ -646,15 +668,18 @@ class MainWindow(QMainWindow):
         # Обновление UI списка активных модов
         self.load_active_mods()
 
-        # Проверка на дубликаты между списками Active и Inactive Mods
+        # Проверка и удаление дубликатов между списками Active и Inactive Mods
         self.check_for_duplicates()
+
+        # Обновление UI для списка неактивных модов
+        self.load_inactive_mods()
 
         QMessageBox.information(self, "Preset Loaded", "Preset loaded successfully!")
         logger.info(f"Preset loaded from {preset_file}")
 
     def check_for_duplicates(self):
         """Проверяет на наличие дубликатов между списками Active и Inactive Mods."""
-        active_mods = {self.active_mods_list.item(i).text() for i in range(self.active_mods_list.count())}
+        active_mods = {self.active_mods_tree.topLevelItem(i).text(0) for i in range(self.active_mods_tree.topLevelItemCount())}
         duplicates = []
 
         for i in range(self.inactive_mods_list.count()):
@@ -672,12 +697,12 @@ class MainWindow(QMainWindow):
     def check_and_remove_duplicates(self):
         """Удаляет дубликаты из списка активных модов, оставляя только один экземпляр."""
         active_mods = {}
-        for i in range(self.active_mods_list.count()):
-            mod_name = self.active_mods_list.item(i).text()
+        for i in range(self.active_mods_tree.topLevelItemCount()):
+            mod_name = self.active_mods_tree.topLevelItem(i).text(0)
             if mod_name in active_mods:
                 # Удаляем дубликат
                 logger.info(f"Removing duplicate mod: {mod_name}")
-                item = self.active_mods_list.takeItem(i)
+                item = self.active_mods_tree.takeTopLevelItem(i)
                 del item
                 i -= 1  # Корректируем индекс, чтобы продолжить итерацию корректно
             else:
@@ -686,8 +711,8 @@ class MainWindow(QMainWindow):
         # Сохраняем обновленный список активных модов
         active_mods_db_path = 'activemods.json'
         active_mods_data = []
-        for i in range(self.active_mods_list.count()):
-            mod_name = self.active_mods_list.item(i).text()
+        for i in range(self.active_mods_tree.topLevelItemCount()):
+            mod_name = self.active_mods_tree.topLevelItem(i).text(0)
             active_mods_data.append({'name': mod_name})
 
         with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
@@ -698,7 +723,7 @@ class MainWindow(QMainWindow):
     def reset_to_default(self):
         """Убирает все моды из активных и обновляет UI сразу после сброса."""
         # Очищаем список активных модов в UI
-        self.active_mods_list.clear()
+        self.active_mods_tree.clear()
 
         # Очищаем файл activemods.json
         active_mods_db_path = 'activemods.json'
@@ -712,9 +737,14 @@ class MainWindow(QMainWindow):
 
     def remove_selected_mod(self):
         """Удаляет выбранный мод из баз данных и списков."""
-        current_item = self.active_mods_list.currentItem() or self.inactive_mods_list.currentItem()
-        if current_item:
+        current_item = self.active_mods_tree.currentItem() or self.inactive_mods_list.currentItem()
+        mod_name = None
+        if isinstance(current_item, QTreeWidgetItem) and current_item.parent() is None:
+            mod_name = current_item.text(0)
+        elif isinstance(current_item, QListWidgetItem):
             mod_name = current_item.text()
+
+        if mod_name:
             mods_db_path = 'modsdb.json'
             active_mods_db_path = 'activemods.json'
 
@@ -751,9 +781,9 @@ class MainWindow(QMainWindow):
                 logger.error(f"Failed to remove mod from activemods.json: {str(e)}")
 
             # Удаляем мод из списка активных или неактивных модов
-            if self.active_mods_list.currentItem():
-                self.active_mods_list.takeItem(self.active_mods_list.currentRow())
-            if self.inactive_mods_list.currentItem():
+            if isinstance(current_item, QTreeWidgetItem):
+                self.active_mods_tree.takeTopLevelItem(self.active_mods_tree.indexOfTopLevelItem(current_item))
+            elif isinstance(current_item, QListWidgetItem):
                 self.inactive_mods_list.takeItem(self.inactive_mods_list.currentRow())
 
             logger.info(f"Mod {mod_name} removed from UI lists.")
@@ -761,7 +791,7 @@ class MainWindow(QMainWindow):
     def remove_all_mods(self):
         """Удаляет все моды и очищает базы данных."""
         # Очищаем списки активных и неактивных модов
-        self.active_mods_list.clear()
+        self.active_mods_tree.clear()
         self.inactive_mods_list.clear()
 
         # Очищаем базы данных
