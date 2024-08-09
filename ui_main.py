@@ -389,14 +389,6 @@ class MainWindow(QMainWindow):
         modpacks_layout.addWidget(self.modpacks_list)
         layout.addLayout(modpacks_layout, stretch=2)
 
-        # Left list and label
-        left_layout = QVBoxLayout()
-        left_layout.addWidget(QLabel("Active Mods"))
-        self.active_mods_tree = QTreeWidget()
-        self.active_mods_tree.setHeaderHidden(True)
-        left_layout.addWidget(self.active_mods_tree)
-        layout.addLayout(left_layout, stretch=2)
-
         # Left list and label for Active Mods
         left_layout = QVBoxLayout()
         left_layout.addWidget(QLabel("Active Mods"))
@@ -447,8 +439,68 @@ class MainWindow(QMainWindow):
         remove_mod_button.clicked.connect(self.remove_selected_mod)
         remove_all_mods_button.clicked.connect(self.remove_all_mods)
 
+        self.modpacks_list.itemDoubleClicked.connect(self.load_selected_modpack)  # Обработка двойного клика
+
         # Load the modpacks into the new Modpacks list
         self.load_modpacks()
+
+    def load_selected_modpack(self, item):
+        """Загружает выбранный модпак при двойном клике."""
+        modpack_name = item.text()
+        modpacks_dir = os.path.join(os.getcwd(), 'modpacks')
+        modpack_path = os.path.join(modpacks_dir, modpack_name)
+
+        if os.path.exists(modpack_path):
+            self.load_preset_from_path(modpack_path)
+
+    def load_preset_from_path(self, preset_file):
+        """Загружает пресет из указанного файла и обновляет списки модов."""
+        # Загрузка пресета из выбранного файла
+        try:
+            with open(preset_file, 'r', encoding='utf-8') as file:
+                preset_mods = json.load(file)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load preset: {str(e)}")
+            logger.error(f"Failed to load preset: {str(e)}")
+            return
+
+        # Загрузка базы данных модов
+        mods_db_path = 'modsdb.json'
+        if os.path.exists(mods_db_path):
+            with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
+                try:
+                    mods_db = json.load(mods_file)
+                except json.JSONDecodeError:
+                    mods_db = []
+        else:
+            mods_db = []
+
+        existing_mods = {mod.get('name') for mod in mods_db}
+
+        # Проверка наличия модов в modsdb.json и добавление недостающих
+        for mod in preset_mods:
+            mod_name = mod.get('name')
+            if mod_name not in existing_mods:
+                mods_db.append(mod)
+                logger.info(f"Added missing mod to modsdb.json: {mod_name}")
+
+        # Сохранение обновленного списка модов в modsdb.json
+        with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
+            json.dump(mods_db, mods_file, ensure_ascii=False, indent=4)
+
+        # Загрузка активных модов из пресета
+        active_mods_db_path = 'activemods.json'
+        with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+            json.dump(preset_mods, active_mods_file, ensure_ascii=False, indent=4)
+
+        # Обновление UI списка активных модов
+        self.load_active_mods()
+
+        # Проверка на дубликаты между списками Active и Inactive Mods
+        self.check_for_duplicates()
+
+        QMessageBox.information(self, "Preset Loaded", "Preset loaded successfully!")
+        logger.info(f"Preset loaded from {preset_file}")
 
     def closeEvent(self, event):
         """Останавливаем наблюдателя при закрытии приложения."""
