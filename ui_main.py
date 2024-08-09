@@ -120,6 +120,9 @@ class MainWindow(QMainWindow):
         self.add_tab("LocalNet")
         self.add_tab("Players Database", self.create_players_database_tab)
 
+        # Подключение сигнала для очистки списка при смене вкладки
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+
         self.process = None  # Переменная для процесса сервера
 
     def load_config(self):
@@ -461,6 +464,9 @@ class MainWindow(QMainWindow):
             with open(mods_db_path, 'w', encoding='utf-8') as file:
                 json.dump(mods_db, file, ensure_ascii=False, indent=4)
 
+            # Добавление мода в список
+            self.mod_list_widget.addItem(mod_name)
+
             self.append_to_console(f"Mod added: {mod_data}")
             logger.info(f"Mod added: {mod_data}")
         except Exception as e:
@@ -481,8 +487,8 @@ class MainWindow(QMainWindow):
 
         side_layout.addLayout(button_layout)
 
-        self.player_list = QListWidget()
-        side_layout.addWidget(self.player_list)
+        self.mod_list_widget = QListWidget()  # Создаем виджет списка для модов
+        side_layout.addWidget(self.mod_list_widget)
 
         add_mod_button = QPushButton("Add Mod")
         side_layout.addWidget(add_mod_button)
@@ -533,6 +539,12 @@ class MainWindow(QMainWindow):
             self.history.append(url)
             self.history_index += 1
             logger.info(f"Added to history: {url}")
+
+    def on_tab_changed(self, index):
+        # Очищаем список модов при смене вкладки
+        if self.tabs.tabText(index) != "Steam Workshop":
+            self.mod_list_widget.clear()
+            logger.info("Tab changed, mod list cleared.")
 
     def create_players_database_tab(self, layout):
         self.db_path = os.path.join(self.zomboid_directory, 'db', 'servertest.db')

@@ -1,36 +1,6 @@
 [
     {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162&searchtext=",
-        "type": "mod",
-        "name": "Every Texture Optimized",
-        "Workshop ID": [
-            "3119788162"
-        ],
-        "Mod ID": [
-            "ETO_Balanced_mode",
-            "ETO_FPS",
-            "ETO_Hotfix",
-            "ETO_Performance_mode",
-            "ETO_Quality_mode"
-        ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=2196102849&searchtext=",
-        "type": "map",
-        "name": "Raven Сreek",
-        "Workshop ID": [
-            "2196102849"
-        ],
-        "Mod ID": [
-            "RavenCreek"
-        ],
-        "Map Folder": [
-            "RavenCreek"
-        ]
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3296852138&searchtext=",
+        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3296852138",
         "type": "mod",
         "name": "More Jackets",
         "Workshop ID": [
@@ -38,30 +8,6 @@
         ],
         "Mod ID": [
             "More Jackets"
-        ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3300487451",
-        "type": "mod",
-        "name": "Foraging Screen Illustrations",
-        "Workshop ID": [
-            "3300487451"
-        ],
-        "Mod ID": [
-            "ForagignScreenIllustrations"
-        ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3282215361",
-        "type": "mod",
-        "name": "Functional Clothesline",
-        "Workshop ID": [
-            "3282215361"
-        ],
-        "Mod ID": [
-            "ClothingLine"
         ],
         "Map Folder": []
     }
