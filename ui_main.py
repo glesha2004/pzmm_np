@@ -2,19 +2,19 @@ import logging
 import json
 import os
 import sqlite3
-
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QDialog,
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QListWidget, QFileDialog,
-    QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout
+    QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout, QInputDialog
 )
-from PySide6.QtCore import QThread, Signal, QObject, QUrl, QProcess, QTimer
+from PySide6.QtCore import QThread, Signal, QObject, QUrl, QProcess, QTimer, Qt
 from PySide6.QtGui import QAction
 import configparser
 from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
 from file_manager import ensure_config_exists
 from page_analizer import SteamWorkshopIdentifier
+from workers import Worker, PZServerWorker
 import getpass
 
 # Настройка логирования
@@ -22,43 +22,6 @@ logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w',
                     format='%(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class Worker(QObject):
-    finished = Signal()
-    log = Signal(str)
-
-    def __init__(self, program_directory, user_directory, config_path):
-        super().__init__()
-        self.program_directory = program_directory
-        self.user_directory = user_directory
-        self.config_path = config_path
-
-    def run(self):
-        try:
-            self.log.emit(f"Starting SteamCMD installation in {self.user_directory}")
-            install_steamcmd(self.log.emit, self.program_directory, self.user_directory, self.config_path)
-        except Exception as e:
-            logger.error(f"Error during SteamCMD installation: {e}")
-            self.log.emit(f"Error during SteamCMD installation: {e}")
-        self.finished.emit()
-
-class PZServerWorker(QObject):
-    finished = Signal()
-    log = Signal(str)
-
-    def __init__(self, steamcmd_path, install_dir, config_path):
-        super().__init__()
-        self.steamcmd_path = steamcmd_path
-        self.install_dir = install_dir
-        self.config_path = config_path
-
-    def run(self):
-        try:
-            self.log.emit(f"Starting Project Zomboid server installation in {self.install_dir} using SteamCMD from {self.steamcmd_path}")
-            install_pz_server(self.log.emit, self.steamcmd_path, self.install_dir, self.config_path)
-        except Exception as e:
-            logger.error(f"Error during Project Zomboid server installation: {e}")
-            self.log.emit(f"Error during Project Zomboid server installation: {e}")
-        self.finished.emit()
 
 class MainWindow(QMainWindow):
     def __init__(self, server_directory=None):
@@ -203,7 +166,7 @@ class MainWindow(QMainWindow):
         self.config.set('Paths', 'zomboid', self.zomboid_path_edit.text())
 
         # Запись конфигурации в файл
-        with open(self.config_path, 'w') as configfile:
+        with open(self.config_path, 'w', encoding='utf-8') as configfile:
             self.config.write(configfile)
 
         logger.info("Settings applied and saved.")
@@ -392,12 +355,14 @@ class MainWindow(QMainWindow):
         server_tab.setLayout(server_layout)
         server_tabs.addTab(server_tab, "Server")
 
+        # Advanced Settings Tab
         advanced_settings_tab = QWidget()
         advanced_settings_layout = QVBoxLayout()
         advanced_settings_layout.addWidget(QLabel("This is the Advanced Settings tab"))
         advanced_settings_tab.setLayout(advanced_settings_layout)
         server_tabs.addTab(advanced_settings_tab, "Advanced Settings")
 
+        # Config Settings Tab
         config_settings_tab = QWidget()
         config_settings_layout = QVBoxLayout()
         config_settings_layout.addWidget(QLabel("This is the Config Settings tab"))
@@ -421,8 +386,8 @@ class MainWindow(QMainWindow):
 
         # Button layout
         button_layout = QVBoxLayout()
-        move_right_button = QPushButton(">>")
-        move_left_button = QPushButton("<<")
+        move_left_button = QPushButton(">>")
+        move_right_button = QPushButton("<<")
         save_preset_button = QPushButton("Save Preset")
         load_preset_button = QPushButton("Load Preset")
         reset_to_default_button = QPushButton("Reset To Default")
@@ -430,14 +395,14 @@ class MainWindow(QMainWindow):
         remove_all_mods_button = QPushButton("Remove All Mods")
 
         # Find the widest button and set a fixed width for all buttons
-        buttons = [move_right_button, move_left_button, save_preset_button, load_preset_button,
+        buttons = [move_left_button, move_right_button, save_preset_button, load_preset_button,
                    reset_to_default_button, remove_mod_button, remove_all_mods_button]
         max_button_width = max(button.sizeHint().width() for button in buttons)
         for button in buttons:
             button.setFixedWidth(max_button_width)
 
-        button_layout.addWidget(move_right_button)
         button_layout.addWidget(move_left_button)
+        button_layout.addWidget(move_right_button)
         button_layout.addWidget(save_preset_button)
         button_layout.addWidget(load_preset_button)
         button_layout.addWidget(reset_to_default_button)
@@ -453,18 +418,363 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.inactive_mods_list)
         layout.addLayout(right_layout, stretch=2)
 
-        move_right_button.clicked.connect(self.move_mod_to_active)
         move_left_button.clicked.connect(self.move_mod_to_inactive)
+        move_right_button.clicked.connect(self.move_mod_to_active)
+        save_preset_button.clicked.connect(self.save_preset)
+        load_preset_button.clicked.connect(self.load_preset)
+        reset_to_default_button.clicked.connect(self.reset_to_default)
+        remove_mod_button.clicked.connect(self.remove_selected_mod)
+        remove_all_mods_button.clicked.connect(self.remove_all_mods)
+
+    def load_inactive_mods(self):
+        """Загружает моды из базы данных и добавляет их в список Inactive Mods, исключая те, что уже в Active Mods."""
+        mods_db_path = 'modsdb.json'
+        active_mods_db_path = 'activemods.json'
+
+        # Загружаем активные моды, чтобы исключить их из списка неактивных
+        active_mods_names = set()
+        if os.path.exists(active_mods_db_path):
+            with open(active_mods_db_path, 'r', encoding='utf-8') as active_file:
+                try:
+                    active_mods_db = json.load(active_file)
+                    active_mods_names = {mod.get('name') for mod in active_mods_db}
+                except json.JSONDecodeError:
+                    active_mods_db = []
+
+        if os.path.exists(mods_db_path):
+            with open(mods_db_path, 'r', encoding='utf-8') as file:
+                try:
+                    mods_db = json.load(file)
+                except json.JSONDecodeError:
+                    mods_db = []
+
+            self.inactive_mods_list.clear()  # Очищаем текущий список
+
+            for mod in mods_db:
+                mod_name = mod.get('name', 'Unknown Mod')
+                if mod_name not in active_mods_names:
+                    self.inactive_mods_list.addItem(mod_name)
+                    logger.info(f"Loaded mod into Inactive Mods: {mod_name}")
+                else:
+                    logger.info(f"Skipped mod already in Active Mods: {mod_name}")
+
+        else:
+            logger.warning(f"Mods database not found: {mods_db_path}")
+
+    def load_active_mods(self):
+        """Загружает активные моды из activemods.json и добавляет их в список Active Mods."""
+        active_mods_db_path = 'activemods.json'
+        if os.path.exists(active_mods_db_path):
+            with open(active_mods_db_path, 'r', encoding='utf-8') as file:
+                try:
+                    active_mods_db = json.load(file)
+                except json.JSONDecodeError:
+                    active_mods_db = []
+
+            self.active_mods_list.clear()  # Очищаем текущий список
+            active_mods_names = set()  # Создаем набор для хранения уникальных имен модов
+            for mod in active_mods_db:
+                mod_name = mod.get('name', 'Unknown Mod')
+                if mod_name not in active_mods_names:
+                    self.active_mods_list.addItem(mod_name)
+                    active_mods_names.add(mod_name)
+                    logger.info(f"Loaded active mod: {mod_name}")
+            else:
+                logger.warning(f"Active mods database not found: {active_mods_db_path}")
 
     def move_mod_to_active(self):
         current_item = self.inactive_mods_list.takeItem(self.inactive_mods_list.currentRow())
         if current_item:
-            self.active_mods_list.addItem(current_item)
+            mod_name = current_item.text()
+            # Проверяем, если мод уже существует в активных модах, не добавляем его снова
+            for i in range(self.active_mods_list.count()):
+                if self.active_mods_list.item(i).text() == mod_name:
+                    logger.info(f"Mod {mod_name} already in active mods list.")
+                    return
+            self.active_mods_list.addItem(mod_name)
+
+            # Копируем данные мода из modsdb.json в activemods.json
+            mods_db_path = 'modsdb.json'
+            active_mods_db_path = 'activemods.json'
+            try:
+                with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
+                    mods_db = json.load(mods_file)
+
+                mod_data = next((mod for mod in mods_db if mod.get('name') == mod_name), None)
+                if mod_data:
+                    if os.path.exists(active_mods_db_path):
+                        with open(active_mods_db_path, 'r', encoding='utf-8') as active_mods_file:
+                            try:
+                                active_mods_db = json.load(active_mods_file)
+                            except json.JSONDecodeError:
+                                active_mods_db = []
+                    else:
+                        active_mods_db = []
+
+                    # Проверяем, если мод уже существует в базе активных модов, не добавляем его снова
+                    if mod_name not in {mod.get('name') for mod in active_mods_db}:
+                        active_mods_db.append(mod_data)
+                        with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+                            json.dump(active_mods_db, active_mods_file, ensure_ascii=False, indent=4)
+                        logger.info(f"Copied mod to active mods: {mod_name}")
+            except Exception as e:
+                logger.error(f"Failed to move mod to active: {str(e)}")
 
     def move_mod_to_inactive(self):
         current_item = self.active_mods_list.takeItem(self.active_mods_list.currentRow())
         if current_item:
+            mod_name = current_item.text()
+            # Проверяем, если мод уже существует в неактивных модах, не добавляем его снова
+            for i in range(self.inactive_mods_list.count()):
+                if self.inactive_mods_list.item(i).text() == mod_name:
+                    logger.info(f"Mod {mod_name} already in inactive mods list.")
+                    return
             self.inactive_mods_list.addItem(current_item)
+
+            # Удаляем мод из activemods.json
+            active_mods_db_path = 'activemods.json'
+            try:
+                if os.path.exists(active_mods_db_path):
+                    with open(active_mods_db_path, 'r', encoding='utf-8') as active_mods_file:
+                        try:
+                            active_mods_db = json.load(active_mods_file)
+                        except json.JSONDecodeError:
+                            active_mods_db = []
+
+                    active_mods_db = [mod for mod in active_mods_db if mod.get('name') != mod_name]
+
+                    with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+                        json.dump(active_mods_db, active_mods_file, ensure_ascii=False, indent=4)
+
+                    logger.info(f"Removed mod from active mods: {mod_name}")
+            except Exception as e:
+                logger.error(f"Failed to remove mod from active: {str(e)}")
+
+    def save_preset(self):
+        """Сохраняет активные моды в пресет (формат .json) в папку modpacks."""
+        # Получаем имя пресета от пользователя
+        preset_name, ok = QInputDialog.getText(self, "Save Preset", "Enter preset name:")
+        if not ok or not preset_name.strip():
+            QMessageBox.warning(self, "Invalid Input", "Preset name cannot be empty.")
+            return
+
+        # Проверяем наличие и создаем папку modpacks, если она не существует
+        modpacks_dir = os.path.join(os.getcwd(), 'modpacks')
+        if not os.path.exists(modpacks_dir):
+            os.makedirs(modpacks_dir)
+            logger.info(f"Created modpacks directory: {modpacks_dir}")
+
+        # Формируем путь к файлу пресета
+        preset_path = os.path.join(modpacks_dir, f"{preset_name.strip()}.json")
+
+        # Загружаем базу данных всех модов
+        mods_db_path = 'modsdb.json'
+        if os.path.exists(mods_db_path):
+            with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
+                try:
+                    mods_db = json.load(mods_file)
+                except json.JSONDecodeError:
+                    mods_db = []
+        else:
+            QMessageBox.warning(self, "Error", "Mods database not found.")
+            return
+
+        # Сбор информации об активных модах
+        active_mods_data = []
+        for i in range(self.active_mods_list.count()):
+            mod_name = self.active_mods_list.item(i).text()
+            # Ищем мод в базе данных
+            mod_info = next((mod for mod in mods_db if mod.get('name') == mod_name), None)
+            if mod_info:
+                active_mods_data.append(mod_info)
+
+        # Сохранение полной информации об активных модах в файл пресета
+        with open(preset_path, 'w', encoding='utf-8') as preset_file:
+            json.dump(active_mods_data, preset_file, ensure_ascii=False, indent=4)
+
+        logger.info(f"Saved preset {preset_name} to {preset_path}")
+        QMessageBox.information(self, "Preset Saved", f"Preset '{preset_name}' saved successfully!")
+
+    def load_preset(self):
+        """Загружает пресет из файла и обновляет списки модов."""
+        # Открытие диалогового окна для выбора файла пресета
+        modpacks_dir = os.path.join(os.getcwd(), 'modpacks')
+        options = QFileDialog.Options()
+        preset_file, _ = QFileDialog.getOpenFileName(self, "Load Preset", modpacks_dir,
+                                                     "JSON Files (*.json);;All Files (*)", options=options)
+        if not preset_file:
+            return
+
+        # Загрузка пресета из выбранного файла
+        try:
+            with open(preset_file, 'r', encoding='utf-8') as file:
+                preset_mods = json.load(file)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load preset: {str(e)}")
+            logger.error(f"Failed to load preset: {str(e)}")
+            return
+
+        # Загрузка базы данных модов
+        mods_db_path = 'modsdb.json'
+        if os.path.exists(mods_db_path):
+            with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
+                try:
+                    mods_db = json.load(mods_file)
+                except json.JSONDecodeError:
+                    mods_db = []
+        else:
+            mods_db = []
+
+        existing_mods = {mod.get('name') for mod in mods_db}
+
+        # Проверка наличия модов в modsdb.json и добавление недостающих
+        for mod in preset_mods:
+            mod_name = mod.get('name')
+            if mod_name not in existing_mods:
+                mods_db.append(mod)
+                logger.info(f"Added missing mod to modsdb.json: {mod_name}")
+
+        # Сохранение обновленного списка модов в modsdb.json
+        with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
+            json.dump(mods_db, mods_file, ensure_ascii=False, indent=4)
+
+        # Загрузка активных модов из пресета
+        active_mods_db_path = 'activemods.json'
+        with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+            json.dump(preset_mods, active_mods_file, ensure_ascii=False, indent=4)
+
+        # Обновление UI списка активных модов
+        self.load_active_mods()
+
+        # Проверка на дубликаты между списками Active и Inactive Mods
+        self.check_for_duplicates()
+
+        QMessageBox.information(self, "Preset Loaded", "Preset loaded successfully!")
+        logger.info(f"Preset loaded from {preset_file}")
+
+    def check_for_duplicates(self):
+        """Проверяет на наличие дубликатов между списками Active и Inactive Mods."""
+        active_mods = {self.active_mods_list.item(i).text() for i in range(self.active_mods_list.count())}
+        duplicates = []
+
+        for i in range(self.inactive_mods_list.count()):
+            mod_name = self.inactive_mods_list.item(i).text()
+            if mod_name in active_mods:
+                duplicates.append(i)
+
+        # Удаляем дубликаты из списка Inactive Mods
+        for i in reversed(duplicates):
+            self.inactive_mods_list.takeItem(i)
+
+        if duplicates:
+            logger.info(f"Removed {len(duplicates)} duplicates from Inactive Mods.")
+
+    def check_and_remove_duplicates(self):
+        """Удаляет дубликаты из списка активных модов, оставляя только один экземпляр."""
+        active_mods = {}
+        for i in range(self.active_mods_list.count()):
+            mod_name = self.active_mods_list.item(i).text()
+            if mod_name in active_mods:
+                # Удаляем дубликат
+                logger.info(f"Removing duplicate mod: {mod_name}")
+                item = self.active_mods_list.takeItem(i)
+                del item
+                i -= 1  # Корректируем индекс, чтобы продолжить итерацию корректно
+            else:
+                active_mods[mod_name] = True
+
+        # Сохраняем обновленный список активных модов
+        active_mods_db_path = 'activemods.json'
+        active_mods_data = []
+        for i in range(self.active_mods_list.count()):
+            mod_name = self.active_mods_list.item(i).text()
+            active_mods_data.append({'name': mod_name})
+
+        with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+            json.dump(active_mods_data, active_mods_file, ensure_ascii=False, indent=4)
+
+        logger.info("Duplicate mods removed and activemods.json updated.")
+
+    def reset_to_default(self):
+        """Убирает все моды из активных и обновляет UI сразу после сброса."""
+        # Очищаем список активных модов в UI
+        self.active_mods_list.clear()
+
+        # Очищаем файл activemods.json
+        active_mods_db_path = 'activemods.json'
+        with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+            json.dump([], active_mods_file, ensure_ascii=False, indent=4)
+
+        # Обновляем UI для списка неактивных модов
+        self.load_inactive_mods()
+
+        logger.info("All mods removed from active mods list (Reset To Default)")
+
+    def remove_selected_mod(self):
+        """Удаляет выбранный мод из баз данных и списков."""
+        current_item = self.active_mods_list.currentItem() or self.inactive_mods_list.currentItem()
+        if current_item:
+            mod_name = current_item.text()
+            mods_db_path = 'modsdb.json'
+            active_mods_db_path = 'activemods.json'
+
+            # Удаляем мод из базы данных modsdb.json
+            try:
+                with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
+                    mods_db = json.load(mods_file)
+
+                mods_db = [mod for mod in mods_db if mod.get('name') != mod_name]
+
+                with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
+                    json.dump(mods_db, mods_file, ensure_ascii=False, indent=4)
+
+                logger.info(f"Removed mod from modsdb.json: {mod_name}")
+            except Exception as e:
+                logger.error(f"Failed to remove mod from modsdb.json: {str(e)}")
+
+            # Удаляем мод из базы данных activemods.json
+            try:
+                if os.path.exists(active_mods_db_path):
+                    with open(active_mods_db_path, 'r', encoding='utf-8') as active_mods_file:
+                        try:
+                            active_mods_db = json.load(active_mods_file)
+                        except json.JSONDecodeError:
+                            active_mods_db = []
+
+                    active_mods_db = [mod for mod in active_mods_db if mod.get('name') != mod_name]
+
+                    with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+                        json.dump(active_mods_db, active_mods_file, ensure_ascii=False, indent=4)
+
+                    logger.info(f"Removed mod from activemods.json: {mod_name}")
+            except Exception as e:
+                logger.error(f"Failed to remove mod from activemods.json: {str(e)}")
+
+            # Удаляем мод из списка активных или неактивных модов
+            if self.active_mods_list.currentItem():
+                self.active_mods_list.takeItem(self.active_mods_list.currentRow())
+            if self.inactive_mods_list.currentItem():
+                self.inactive_mods_list.takeItem(self.inactive_mods_list.currentRow())
+
+            logger.info(f"Mod {mod_name} removed from UI lists.")
+
+    def remove_all_mods(self):
+        """Удаляет все моды и очищает базы данных."""
+        # Очищаем списки активных и неактивных модов
+        self.active_mods_list.clear()
+        self.inactive_mods_list.clear()
+
+        # Очищаем базы данных
+        mods_db_path = 'modsdb.json'
+        active_mods_db_path = 'activemods.json'
+
+        with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
+            json.dump([], mods_file, ensure_ascii=False, indent=4)
+
+        with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
+            json.dump([], active_mods_file, ensure_ascii=False, indent=4)
+
+        logger.info("All mods removed and databases cleared.")
 
     def add_mod(self):
         current_url = self.browser.url().toString()
@@ -592,7 +902,7 @@ class MainWindow(QMainWindow):
         logger.info(f"Navigating to home: {home_url}")
 
         # Обновляем историю навигации
-        if self.history_index == -1 or self.history[self.history_index] != home_url:
+        if (self.history_index == -1) or (self.history[self.history_index] != home_url):
             self.history.append(home_url)
             self.history_index += 1
 
@@ -612,8 +922,11 @@ class MainWindow(QMainWindow):
             logger.info(f"Added to history: {url}")
 
     def on_tab_changed(self, index):
-        # Очищаем список модов при смене вкладки
-        if self.tabs.tabText(index) != "Steam Workshop":
+        if self.tabs.tabText(index) == "Mod Manager":
+            self.load_inactive_mods()  # Загружаем моды и удаляем дубликаты при открытии вкладки Mod Manager
+            self.load_active_mods()  # Загружаем активные моды
+        else:
+            # Очищаем список модов при смене вкладки
             self.mod_list_widget.clear()
             logger.info("Tab changed, mod list cleared.")
 
