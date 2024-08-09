@@ -6,10 +6,10 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMenuBar, QTabWidget, QWidget, QVBoxLayout, QLabel, QDialog,
     QRadioButton, QPushButton, QTextEdit, QComboBox, QHBoxLayout, QLineEdit, QTreeWidget, QTreeWidgetItem,
     QFileDialog, QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QMessageBox, QFormLayout, QInputDialog,
-    QListWidget, QListWidgetItem
+    QListWidget, QListWidgetItem, QStyle
 )
 from PySide6.QtCore import QThread, Signal, QObject, QUrl, QProcess, QTimer, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QBrush, QColor
 import configparser
 from setup import install_steamcmd, install_pz_server
 from browser_engine import BrowserEngine
@@ -479,24 +479,48 @@ class MainWindow(QMainWindow):
                 if mod_name not in active_mods_names:
                     # Создаем элемент дерева для мода
                     mod_item = QTreeWidgetItem([mod_name])
+                    mod_item.setExpanded(True)  # Оставляем поддерево открытым
 
                     # Добавляем подэлементы для Mod ID и Map Folder
                     mod_ids = mod.get('Mod ID', [])
+                    disabled_mod_ids = mod.get('disabled_mod_ids', [])
                     map_folders = mod.get('Map Folder', [])
+                    disabled_map_folders = mod.get('disabled_map_folders', [])
+
                     if mod_ids:
                         mod_id_item = QTreeWidgetItem(mod_item, ["Mod ID"])
                         for mod_id in mod_ids:
-                            QTreeWidgetItem(mod_id_item, [mod_id])
+                            id_item = QTreeWidgetItem(mod_id_item, [mod_id])
+                            if mod_id in disabled_mod_ids:
+                                id_item.setIcon(0, QApplication.style().standardIcon(
+                                    QStyle.SP_DialogCloseButton))  # Иконка крестика
+                            else:
+                                id_item.setIcon(0, QApplication.style().standardIcon(
+                                    QStyle.SP_DialogApplyButton))  # Иконка галочки
+                            id_item.setData(0, Qt.UserRole, 'Mod ID')
+                        mod_id_item.setExpanded(True)
+
                     if map_folders:
                         map_folder_item = QTreeWidgetItem(mod_item, ["Map Folder"])
                         for map_folder in map_folders:
-                            QTreeWidgetItem(map_folder_item, [map_folder])
+                            folder_item = QTreeWidgetItem(map_folder_item, [map_folder])
+                            if map_folder in disabled_map_folders:
+                                folder_item.setIcon(0, QApplication.style().standardIcon(
+                                    QStyle.SP_DialogCloseButton))  # Иконка крестика
+                            else:
+                                folder_item.setIcon(0, QApplication.style().standardIcon(
+                                    QStyle.SP_DialogApplyButton))  # Иконка галочки
+                            folder_item.setData(0, Qt.UserRole, 'Map Folder')
+                        map_folder_item.setExpanded(True)
 
                     self.active_mods_tree.addTopLevelItem(mod_item)
                     active_mods_names.add(mod_name)
                     logger.info(f"Loaded active mod: {mod_name}")
         else:
             logger.warning(f"Active mods database not found: {active_mods_db_path}")
+
+        # Подключение сигнала для обработки двойного клика
+        self.active_mods_tree.itemDoubleClicked.connect(self.toggle_mod_item)
 
     def move_mod_to_active(self):
         current_item = self.inactive_mods_list.takeItem(self.inactive_mods_list.currentRow())
@@ -572,6 +596,60 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"Failed to remove mod from active: {str(e)}")
 
+    def toggle_mod_item(self, item, column):
+        """Переключает активность элемента Mod ID или Map Folder по двойному клику."""
+        # Проверка, не вызван ли уже метод toggle_mod_item
+        if getattr(self, '_is_toggling', False):
+            return
+
+        # Устанавливаем блокировку
+        self._is_toggling = True
+
+        try:
+            parent = item.parent()
+            if parent is None:  # Игнорируем клики по основным модам
+                return
+
+            item_type = item.data(0, Qt.UserRole)
+            mod_name = parent.parent().text(0) if parent.parent() else parent.text(0)
+
+            mods_db_path = 'activemods.json'
+            with open(mods_db_path, 'r', encoding='utf-8') as file:
+                active_mods_db = json.load(file)
+
+            mod_data = next((mod for mod in active_mods_db if mod['name'] == mod_name), None)
+            if not mod_data:
+                logger.warning(f"Mod {mod_name} not found in activemods.json.")
+                return
+
+            if item_type == 'Mod ID':
+                target_list = mod_data.setdefault('disabled_mod_ids', [])
+            elif item_type == 'Map Folder':
+                target_list = mod_data.setdefault('disabled_map_folders', [])
+            else:
+                return
+
+            if item.text(0) in target_list:
+                target_list.remove(item.text(0))
+                item.setIcon(0, QApplication.style().standardIcon(QStyle.SP_DialogApplyButton))  # Галочка
+            else:
+                target_list.append(item.text(0))
+                item.setIcon(0, QApplication.style().standardIcon(QStyle.SP_DialogCloseButton))  # Крестик
+
+            # Сохранение обновленных данных
+            with open(mods_db_path, 'w', encoding='utf-8') as file:
+                json.dump(active_mods_db, file, ensure_ascii=False, indent=4)
+
+            logger.info(f"Toggled {item_type} {item.text(0)} for mod {mod_name}")
+        finally:
+            # Снимаем блокировку
+            self._is_toggling = False
+
+    def handle_single_click(self, item, column):
+        """Обрабатывает одинарный клик и предотвращает двойное переключение."""
+        if item.isSelected():
+            self.toggle_mod_item(item, column)
+
     def save_preset(self):
         """Сохраняет активные моды в пресет (формат .json) в папку modpacks."""
         # Получаем имя пресета от пользователя
@@ -589,26 +667,38 @@ class MainWindow(QMainWindow):
         # Формируем путь к файлу пресета
         preset_path = os.path.join(modpacks_dir, f"{preset_name.strip()}.json")
 
-        # Загружаем базу данных всех модов
-        mods_db_path = 'modsdb.json'
-        if os.path.exists(mods_db_path):
-            with open(mods_db_path, 'r', encoding='utf-8') as mods_file:
+        # Загружаем данные активных модов из activemods.json
+        active_mods_db_path = 'activemods.json'
+        if os.path.exists(active_mods_db_path):
+            with open(active_mods_db_path, 'r', encoding='utf-8') as active_mods_file:
                 try:
-                    mods_db = json.load(mods_file)
+                    active_mods_db = json.load(active_mods_file)
                 except json.JSONDecodeError:
-                    mods_db = []
+                    active_mods_db = []
         else:
-            QMessageBox.warning(self, "Error", "Mods database not found.")
-            return
+            active_mods_db = []
 
         # Сбор информации об активных модах
         active_mods_data = []
-        for i in range(self.active_mods_tree.topLevelItemCount()):
-            mod_name = self.active_mods_tree.topLevelItem(i).text(0)
-            # Ищем мод в базе данных
-            mod_info = next((mod for mod in mods_db if mod.get('name') == mod_name), None)
-            if mod_info:
-                active_mods_data.append(mod_info)
+        for mod in active_mods_db:
+            mod_name = mod.get('name', 'Unknown Mod')
+
+            mod_data = {
+                'name': mod_name,
+                'Workshop ID': mod.get('Workshop ID', []),
+                'Mod ID': mod.get('Mod ID', []),
+                'Map Folder': mod.get('Map Folder', []),
+                'disabled_mod_ids': mod.get('disabled_mod_ids', []),
+                'disabled_map_folders': mod.get('disabled_map_folders', [])
+            }
+
+            # Убедимся, что сохраняем содержимое, если оно есть
+            if not mod_data['disabled_mod_ids']:
+                mod_data['disabled_mod_ids'] = []
+            if not mod_data['disabled_map_folders']:
+                mod_data['disabled_map_folders'] = []
+
+            active_mods_data.append(mod_data)
 
         # Сохранение полной информации об активных модах в файл пресета
         with open(preset_path, 'w', encoding='utf-8') as preset_file:
@@ -660,7 +750,7 @@ class MainWindow(QMainWindow):
         with open(mods_db_path, 'w', encoding='utf-8') as mods_file:
             json.dump(mods_db, mods_file, ensure_ascii=False, indent=4)
 
-        # Обновление списка активных модов
+        # Загрузка активных модов из пресета
         active_mods_db_path = 'activemods.json'
         with open(active_mods_db_path, 'w', encoding='utf-8') as active_mods_file:
             json.dump(preset_mods, active_mods_file, ensure_ascii=False, indent=4)
@@ -668,11 +758,8 @@ class MainWindow(QMainWindow):
         # Обновление UI списка активных модов
         self.load_active_mods()
 
-        # Проверка и удаление дубликатов между списками Active и Inactive Mods
+        # Проверка на дубликаты между списками Active и Inactive Mods
         self.check_for_duplicates()
-
-        # Обновление UI для списка неактивных модов
-        self.load_inactive_mods()
 
         QMessageBox.information(self, "Preset Loaded", "Preset loaded successfully!")
         logger.info(f"Preset loaded from {preset_file}")

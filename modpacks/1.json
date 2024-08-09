@@ -1,42 +1,80 @@
 [
     {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3296852138",
-        "type": "mod",
-        "name": "More Jackets",
+        "name": "Snake's Mod Pack",
         "Workshop ID": [
-            "3296852138"
+            "2719327441"
         ],
         "Mod ID": [
-            "More Jackets"
+            "AliceSPack",
+            "AmmoMaker",
+            "Barco Abandonado",
+            "BatesMetalicosRevived",
+            "CustomMapBridge",
+            "Factory",
+            "FuelTanksMod",
+            "LeGourmetRevolution",
+            "LootZetaEnhancedEdition",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "RPropaneTank",
+            "Riverside Gunstore",
+            "SkillsMag",
+            "SnakeClothingMod",
+            "SnakeMansion",
+            "SnakeUtilsPack",
+            "TableSaw",
+            "TallerMecanico",
+            "WPA",
+            "ZombiesAtWorkEvo41",
+            "AliceSPack",
+            "AmmoMaker",
+            "Barco Abandonado",
+            "BatesMetalicosRevived",
+            "CustomMapBridge",
+            "Factory",
+            "FuelTanksMod",
+            "LeGourmetRevolution",
+            "LootZetaEnhancedEdition",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "RPropaneTank",
+            "Riverside Gunstore",
+            "SkillsMag",
+            "SnakeClothingMod",
+            "SnakeMansion",
+            "SnakeUtilsPack",
+            "TableSaw",
+            "TallerMecanico",
+            "WPA",
+            "ZombiesAtWorkEvo41"
         ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3300487451",
-        "type": "mod",
-        "name": "Foraging Screen Illustrations",
-        "Workshop ID": [
-            "3300487451"
+        "Map Folder": [
+            "BarcoAbandonado",
+            "Factory",
+            "Mansion",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "Riverside Gunstore",
+            "mechanicsplaces",
+            "tluisville",
+            "tmarch",
+            "tvalley",
+            "BarcoAbandonado",
+            "Factory",
+            "Mansion",
+            "MilitaryComplex",
+            "NumarkComplex",
+            "Riverside Gunstore",
+            "mechanicsplaces",
+            "tluisville",
+            "tmarch",
+            "tvalley"
         ],
-        "Mod ID": [
-            "ForagignScreenIllustrations"
+        "disabled_mod_ids": [
+            "AliceSPack",
+            "AmmoMaker",
+            "BatesMetalicosRevived"
         ],
-        "Map Folder": []
-    },
-    {
-        "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162&searchtext=",
-        "type": "mod",
-        "name": "Every Texture Optimized",
-        "Workshop ID": [
-            "3119788162"
-        ],
-        "Mod ID": [
-            "ETO_Balanced_mode",
-            "ETO_FPS",
-            "ETO_Hotfix",
-            "ETO_Performance_mode",
-            "ETO_Quality_mode"
-        ],
-        "Map Folder": []
+        "disabled_map_folders": []
     }
 ]
